@@ -1221,9 +1221,9 @@ const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, 
   );
 };
 
-// Tendances
+// Tendances - CORRIGÉ pour fonctionner avec l'incrémentation
 const TrendList = ({ trends, onResetTrends, theme, onViewDetails }) => {
-  const MIN_COUNT = 3;
+  const MIN_COUNT = 1; // Réduit à 1 pour montrer plus d'articles
   
   const topTrends = Object.entries(trends)
     .filter(([_, count]) => count >= MIN_COUNT)
@@ -1262,7 +1262,7 @@ const TrendList = ({ trends, onResetTrends, theme, onViewDetails }) => {
             Pas assez de données
           </p>
           <p className="text-xs text-white/70 mt-2">
-            Ajoutez le même article au moins {MIN_COUNT} fois
+            Ajoutez des articles pour voir vos tendances
           </p>
         </div>
       </div>
@@ -1289,7 +1289,7 @@ const TrendList = ({ trends, onResetTrends, theme, onViewDetails }) => {
               Top Ajouts
             </h2>
             <p className="text-white/80 text-xs sm:text-sm">
-              Articles ajoutés {MIN_COUNT}+ fois
+              Articles les plus fréquents
             </p>
           </div>
         </div>
@@ -1879,15 +1879,23 @@ export default function App() {
     });
   }, [items, searchTerm, sortBy, sortOrder]);
   
+  // CORRECTION : Fonction pour mettre à jour les tendances
+  const updateTrends = (itemName, quantityChange = 1) => {
+    setTrends(prevTrends => {
+      const newTrends = { ...prevTrends };
+      newTrends[itemName] = (newTrends[itemName] || 0) + quantityChange;
+      storage.setTrends(newTrends);
+      return newTrends;
+    });
+  };
+  
   const addItem = (item) => {
     const newItems = [...items, item];
     setItems(newItems);
     storage.setItems(newItems);
     
-    const newTrends = { ...trends };
-    newTrends[item.name] = (newTrends[item.name] || 0) + 1;
-    setTrends(newTrends);
-    storage.setTrends(newTrends);
+    // CORRECTION : Utiliser la fonction updateTrends
+    updateTrends(item.name, item.quantity || 1);
   };
   
   const toggleItem = (id) => {
@@ -1905,6 +1913,17 @@ export default function App() {
   };
   
   const updateQuantity = (id, newQuantity) => {
+    const itemToUpdate = items.find(item => item.id === id);
+    if (itemToUpdate) {
+      const oldQuantity = itemToUpdate.quantity || 1;
+      
+      // CORRECTION : Mettre à jour les tendances seulement si la quantité augmente
+      if (newQuantity > oldQuantity) {
+        const diff = newQuantity - oldQuantity;
+        updateTrends(itemToUpdate.name, diff);
+      }
+    }
+    
     const newItems = items.map(item => 
       item.id === id ? { ...item, quantity: newQuantity } : item
     );
