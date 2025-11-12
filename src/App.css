@@ -1,0 +1,434 @@
+/* CORRECTION URGENTE PLEIN ÉCRAN - VERSION COMPLÈTE */
+:root {
+  --sat: env(safe-area-inset-top);
+  --sar: env(safe-area-inset-right);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+}
+
+/* Reset complet pour Android 15 */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  background-color: #fff7ed;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  background-color: #fff7ed;
+}
+
+/* Support avancé pour les zones sûres Android */
+@supports(padding: max(0px)) {
+  #root {
+    padding-top: max(0px, env(safe-area-inset-top));
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
+}
+
+/* Correction spécifique pour le mode standalone Android */
+@media (display-mode: standalone) {
+  body {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  
+  #root {
+    height: 100vh;
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* Support Window Controls Overlay pour Android 15+ */
+@media (display-mode: window-controls-overlay) {
+  #root {
+    padding-top: env(titlebar-area-height, 0px);
+    margin-top: 0;
+  }
+  
+  body {
+    position: fixed;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+/* Container principal de l'application */
+.app-container {
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0;
+}
+
+/* Styles existants conservés */
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+/* GARANTIR que les menus s'affichent */
+.relative {
+  position: relative !important;
+}
+
+.absolute {
+  position: absolute !important;
+  z-index: 9999 !important;
+}
+
+.z-50 {
+  z-index: 9999 !important;
+}
+
+/* FORCER l'affichage des menus */
+[class*="absolute"] {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Support complet pour tous les écrans et orientations */
+@media (min-width: 768px) {
+  #root {
+    padding: 1.5rem;
+    max-width: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  #root {
+    padding: 2rem;
+  }
+}
+
+/* Support écrans très larges */
+@media (min-width: 1200px) {
+  #root {
+    padding: 2rem 3rem;
+  }
+}
+
+@media (min-width: 1536px) {
+  #root {
+    padding: 2rem 4rem;
+  }
+}
+
+/* Support orientation paysage */
+@media (orientation: landscape) {
+  .landscape-layout {
+    flex-direction: row;
+  }
+  
+  /* Correction spécifique landscape pour Android */
+  #root {
+    padding-top: max(0px, env(safe-area-inset-top));
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
+  }
+}
+
+/* Optimisations mobiles */
+@media (max-width: 767px) {
+  .mobile-padding {
+    padding: 0.5rem;
+  }
+  
+  .mobile-text {
+    font-size: 0.875rem;
+  }
+  
+  /* Corrections mobiles spécifiques */
+  #root {
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
+  }
+}
+
+@media (max-width: 320px) {
+  .xs-screen {
+    padding: 0.25rem;
+  }
+  
+  .xs-text {
+    font-size: 0.75rem;
+  }
+}
+
+/* Correction pour les menus déroulants */
+.relative, .absolute {
+  text-align: left;
+}
+
+/* Support plein écran pour PWA - Version corrigée */
+@media (display-mode: fullscreen) {
+  #root {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  
+  body {
+    overflow: hidden;
+  }
+}
+
+/* Support notch et zones sûres - Version améliorée */
+@supports(padding: max(0px)) {
+  .safe-area-padding {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* Correction spécifique pour les écrans très hauts */
+@media (min-height: 1000px) {
+  #root {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* Support écrans pliables */
+@media (spanning: single-fold-vertical) {
+  #root {
+    padding: 1rem;
+  }
+}
+
+/* Optimisation pour les tablettes en mode paysage */
+@media (min-width: 768px) and (orientation: landscape) {
+  #root {
+    padding: 1rem 2rem;
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* Support spécifique pour les très grands écrans */
+@media (min-width: 2000px) {
+  #root {
+    max-width: 1800px;
+    margin: 0 auto;
+  }
+}
+
+/* Correction pour éviter le débordement horizontal */
+.container {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Support pour les appareils avec barre de navigation virtuelle */
+@media (max-height: 600px) {
+  #root {
+    padding: 0.5rem;
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* Optimisation pour les écrans carrés */
+@media (aspect-ratio: 1/1) {
+  #root {
+    padding: 1rem;
+  }
+}
+
+/* Support pour les modes sombre/clair du système */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+  
+  body {
+    background-color: #1c1917;
+    color: #ffffff;
+  }
+  
+  #root {
+    background-color: #1c1917;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+  }
+}
+
+/* Correction pour le scrolling smooth */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Support pour le réduit de mouvement */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Désactiver le zoom sur les inputs pour Android/iOS */
+@media (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px; /* Empêche le zoom automatique */
+    transform: scale(1);
+    transform-origin: left top;
+  }
+  
+  /* Correction pour les formulaires mobiles */
+  form {
+    zoom: 1;
+  }
+}
+
+/* Correction pour la barre de navigation Android */
+.android-navigation-fix {
+  margin-bottom: env(safe-area-inset-bottom);
+}
+
+/* Support pour les gestes Android modernes */
+@media (pointer: coarse) {
+  button, a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Prévention des sélections de texte sur mobile */
+@media (max-width: 768px) {
+  * {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
+  
+  input, textarea {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+  }
+}
+
+/* Correction pour le viewport Android */
+@viewport {
+  width: device-width;
+  height: device-height;
+  zoom: 1.0;
+  min-zoom: 1.0;
+  max-zoom: 1.0;
+  user-zoom: fixed;
+}
+
+/* Styles de débogage (à retirer en production) */
+.debug-border {
+  border: 1px solid red;
+}
+
+.debug-menu {
+  background: rgba(255, 0, 0, 0.1) !important;
+}
+
+/* Classe utilitaire pour le padding safe area */
+.safe-area {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Correction finale pour le body */
+body {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Garantir que l'application prend tout l'écran */
+#root > * {
+  width: 100%;
+  height: 100%;
+}
+
+/* Support pour les APIs modernes Android */
+@media (display-mode: minimal-ui) {
+  #root {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+}
+
+/* Correction pour les écrans avec notch dynamique */
+@supports(animation-timeline: scroll()) {
+  #root {
+    view-timeline: --root-timeline;
+  }
+}
