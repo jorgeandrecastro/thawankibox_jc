@@ -66,15 +66,15 @@ const storage = {
   }
 };
 
-// Fonction d'export CSV
-const exportToCSV = (items) => {
+// Fonctions d'export CSV
+const exportToCSV = (items, filename) => {
   const headers = ['Article', 'Catégorie', 'Quantité', 'Statut', 'Date'];
   const rows = items.map(item => [
     item.name,
     item.category || 'Autres',
     item.quantity,
     item.checked ? 'Acheté' : 'À acheter',
-    new Date(item.addedAt).toLocaleDateString('fr-FR')
+    new Date(item.addedAt || item.purchasedAt).toLocaleDateString('fr-FR')
   ]);
   
   const csvContent = [
@@ -85,11 +85,58 @@ const exportToCSV = (items) => {
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = `courses_${new Date().toISOString().split('T')[0]}.csv`;
+  link.download = filename;
   link.click();
 };
 
-// Composant Modal réutilisable
+const exportFullHistoryCSV = (purchaseHistory) => {
+  const headers = ['Article', 'Catégorie', 'Quantité', 'Date Achat', 'Heure Achat'];
+  const rows = purchaseHistory.map(item => [
+    item.name,
+    item.category || 'Autres',
+    item.quantity,
+    new Date(item.purchasedAt).toLocaleDateString('fr-FR'),
+    new Date(item.purchasedAt).toLocaleTimeString('fr-FR')
+  ]);
+  
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+  ].join('\n');
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `historique_complet_${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+};
+
+const exportDayHistoryCSV = (purchaseHistory, date) => {
+  const dayPurchases = purchaseHistory.filter(item => 
+    item.date === date || new Date(item.purchasedAt).toISOString().split('T')[0] === date
+  );
+  
+  const headers = ['Article', 'Catégorie', 'Quantité', 'Heure Achat'];
+  const rows = dayPurchases.map(item => [
+    item.name,
+    item.category || 'Autres',
+    item.quantity,
+    new Date(item.purchasedAt).toLocaleTimeString('fr-FR')
+  ]);
+  
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+  ].join('\n');
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `historique_${date}.csv`;
+  link.click();
+};
+
+// Composant Modal réutilisable - CORRIGÉ POUR RESPONSIVE
 const Modal = ({ isOpen, onClose, title, children, theme, size = "md" }) => {
   if (!isOpen) return null;
 
@@ -107,36 +154,38 @@ const Modal = ({ isOpen, onClose, title, children, theme, size = "md" }) => {
           theme === 'dark' ? 'bg-gray-800' : 'bg-white'
         } shadow-2xl`}
       >
-        <div className={`flex items-center justify-between p-6 border-b ${
+        <div className={`flex items-center justify-between p-4 sm:p-6 border-b ${
           theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
         }`}>
-          <h2 className={`text-xl font-bold ${
+          <h2 className={`text-lg sm:text-xl font-bold ${
             theme === 'dark' ? 'text-white' : 'text-gray-800'
           }`}>
             {title}
           </h2>
           <button
             onClick={onClose}
-            className={`p-2 rounded-lg transition-all hover:scale-110 active:scale-95 ${
+            className={`p-2 sm:p-3 rounded-lg transition-all hover:scale-110 active:scale-95 ${
               theme === 'dark' 
                 ? 'hover:bg-gray-700 text-gray-400 hover:text-white' 
                 : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
             }`}
+            style={{ minWidth: '44px', minHeight: '44px' }}
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
         </div>
         
-        <div className="overflow-y-auto max-h-[calc(90vh-80px)]">
+        <div className="overflow-y-auto max-h-[calc(90vh-120px)]">
           {children}
         </div>
         
-        <div className={`flex justify-end p-6 border-t ${
+        <div className={`flex justify-end p-4 sm:p-6 border-t ${
           theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
         }`}>
           <button
             onClick={onClose}
             className="px-6 py-3 bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-600 hover:to-rose-600 text-white font-semibold rounded-xl transition-all transform hover:scale-105 active:scale-95"
+            style={{ minWidth: '80px', minHeight: '44px' }}
           >
             Fermer
           </button>
@@ -146,7 +195,7 @@ const Modal = ({ isOpen, onClose, title, children, theme, size = "md" }) => {
   );
 };
 
-// Modal pour le menu de paramètres
+// Modal pour le menu de paramètres - CORRIGÉ POUR RESPONSIVE
 const SettingsModal = ({ isOpen, onClose, theme, onResetTrends, onResetStats, onResetAll }) => {
   if (!isOpen) return null;
 
@@ -183,32 +232,34 @@ const SettingsModal = ({ isOpen, onClose, theme, onResetTrends, onResetStats, on
           theme === 'dark' ? 'bg-gray-800' : 'bg-white'
         } shadow-2xl`}
       >
-        <div className={`flex items-center justify-between p-6 border-b ${
+        <div className={`flex items-center justify-between p-4 sm:p-6 border-b ${
           theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
         }`}>
-          <h2 className={`text-xl font-bold ${
+          <h2 className={`text-lg sm:text-xl font-bold ${
             theme === 'dark' ? 'text-white' : 'text-gray-800'
           }`}>
             Paramètres
           </h2>
           <button
             onClick={onClose}
-            className={`p-2 rounded-lg transition-all hover:scale-110 active:scale-95 ${
+            className={`p-2 sm:p-3 rounded-lg transition-all hover:scale-110 active:scale-95 ${
               theme === 'dark' 
                 ? 'hover:bg-gray-700 text-gray-400 hover:text-white' 
                 : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
             }`}
+            style={{ minWidth: '44px', minHeight: '44px' }}
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
         </div>
         
-        <div className="overflow-y-auto max-h-[calc(90vh-140px)] p-6">
+        <div className="overflow-y-auto max-h-[calc(90vh-140px)] p-4 sm:p-6">
           <div className="space-y-4">
             {/* Reset tendances */}
             <button
               onClick={handleResetTrends}
               className="w-full text-left px-4 py-4 hover:bg-orange-50 dark:hover:bg-orange-900/20 text-gray-700 dark:text-gray-300 font-medium transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-orange-200 dark:border-orange-800"
+              style={{ minHeight: '60px' }}
             >
               <TrendingUp className="w-5 h-5 text-orange-500" />
               <div className="flex-1">
@@ -223,6 +274,7 @@ const SettingsModal = ({ isOpen, onClose, theme, onResetTrends, onResetStats, on
             <button
               onClick={handleResetStats}
               className="w-full text-left px-4 py-4 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-300 font-medium transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-blue-200 dark:border-blue-800"
+              style={{ minHeight: '60px' }}
             >
               <BarChart3 className="w-5 h-5 text-blue-500" />
               <div className="flex-1">
@@ -237,6 +289,7 @@ const SettingsModal = ({ isOpen, onClose, theme, onResetTrends, onResetStats, on
             <button
               onClick={openPrivacyPolicy}
               className="w-full text-left px-4 py-4 hover:bg-green-50 dark:hover:bg-green-900/20 text-gray-700 dark:text-gray-300 font-medium transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-green-200 dark:border-green-800"
+              style={{ minHeight: '60px' }}
             >
               <Shield className="w-5 h-5 text-green-500" />
               <div className="flex-1">
@@ -251,6 +304,7 @@ const SettingsModal = ({ isOpen, onClose, theme, onResetTrends, onResetStats, on
             <button
               onClick={handleResetAll}
               className="w-full text-left px-4 py-4 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 font-semibold transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-red-200 dark:border-red-800"
+              style={{ minHeight: '60px' }}
             >
               <Trash2 className="w-5 h-5" />
               <div className="flex-1">
@@ -263,12 +317,13 @@ const SettingsModal = ({ isOpen, onClose, theme, onResetTrends, onResetStats, on
           </div>
         </div>
         
-        <div className={`flex justify-end p-6 border-t ${
+        <div className={`flex justify-end p-4 sm:p-6 border-t ${
           theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
         }`}>
           <button
             onClick={onClose}
             className="px-6 py-3 bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-600 hover:to-rose-600 text-white font-semibold rounded-xl transition-all transform hover:scale-105 active:scale-95"
+            style={{ minWidth: '80px', minHeight: '44px' }}
           >
             Fermer
           </button>
@@ -292,8 +347,8 @@ const getCategoryEmoji = (category) => {
   return emojis[category] || '📦';
 };
 
-// Composant pour le contenu de la modal Trends
-const TrendsModalContent = ({ trends, theme }) => {
+// Composant pour le contenu de la modal Trends - CORRIGÉ POUR N'AFFICHER QUE LES TENDANCES VALIDÉES
+const TrendsModalContent = ({ trends, theme, onExport }) => {
   const sortedTrends = Object.entries(trends)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 20);
@@ -305,12 +360,25 @@ const TrendsModalContent = ({ trends, theme }) => {
         <p className={`text-lg ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
           Aucune donnée de tendance
         </p>
+        <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'} mt-2`}>
+          Les tendances apparaîtront après validation de vos achats
+        </p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <button
+          onClick={onExport}
+          className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-all"
+          style={{ minWidth: '120px', minHeight: '44px' }}
+        >
+          <Download className="w-4 h-4" />
+          Exporter CSV
+        </button>
+      </div>
       <div className={`grid grid-cols-1 md:grid-cols-2 gap-4`}>
         {sortedTrends.map(([item, count], index) => (
           <div
@@ -343,8 +411,10 @@ const TrendsModalContent = ({ trends, theme }) => {
   );
 };
 
-// Composant pour le contenu de la modal History
-const HistoryModalContent = ({ purchaseHistory, items, theme }) => {
+// Composant pour le contenu de la modal History - CORRIGÉ POUR EXPORT
+const HistoryModalContent = ({ purchaseHistory, items, theme, onExportFull, onExportDay }) => {
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  
   // Combiner l'historique avec les articles actuellement cochés
   const currentCheckedItems = items.filter(item => item.checked).map(item => ({
     name: item.name,
@@ -384,6 +454,48 @@ const HistoryModalContent = ({ purchaseHistory, items, theme }) => {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+        <div className="flex flex-col sm:flex-row gap-4 flex-1">
+          <button
+            onClick={onExportFull}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-all"
+            style={{ minWidth: '180px', minHeight: '44px' }}
+          >
+            <Download className="w-4 h-4" />
+            Exporter historique complet
+          </button>
+          
+          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+            <select
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="px-4 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg focus:border-orange-400 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              style={{ minWidth: '200px', minHeight: '44px' }}
+            >
+              {sortedDates.map(date => (
+                <option key={date} value={date}>
+                  {new Date(date).toLocaleDateString('fr-FR', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })} ({purchasesByDate[date].length} articles)
+                </option>
+              ))}
+            </select>
+            
+            <button
+              onClick={() => onExportDay(selectedDate)}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-all"
+              style={{ minWidth: '160px', minHeight: '44px' }}
+            >
+              <Download className="w-4 h-4" />
+              Exporter ce jour
+            </button>
+          </div>
+        </div>
+      </div>
+
       {currentCheckedItems.length > 0 && (
         <div className={`p-4 rounded-xl ${
           theme === 'dark' ? 'bg-blue-900/20 border border-blue-700' : 'bg-blue-50 border border-blue-200'
@@ -622,12 +734,13 @@ const StatsModalContent = ({ purchaseHistory, items, theme }) => {
   );
 };
 
-// Animation "Liste terminée"
+// Animation "Liste terminée" MODIFIÉE - BOUTON CONTINUER RETIRÉ
 const CompletionAnimation = ({ 
   show, 
   onClose, 
   onViewStats, 
   onViewHistory, 
+  onValidateAndKeep,
   onValidateAndClear,
   theme 
 }) => {
@@ -636,15 +749,11 @@ const CompletionAnimation = ({
   useEffect(() => {
     if (show) {
       setIsVisible(true);
-      const timer = setTimeout(() => {
-        onClose();
-      }, 10000);
-      return () => clearTimeout(timer);
     } else {
       const timer = setTimeout(() => setIsVisible(false), 300);
       return () => clearTimeout(timer);
     }
-  }, [show, onClose]);
+  }, [show]);
 
   if (!isVisible && !show) return null;
 
@@ -687,6 +796,7 @@ const CompletionAnimation = ({
                   ? 'bg-blue-600 hover:bg-blue-700 text-white'
                   : 'bg-blue-500 hover:bg-blue-600 text-white'
               }`}
+              style={{ minHeight: '60px' }}
             >
               <BarChart3 className="w-5 h-5" />
               Voir les statistiques
@@ -699,33 +809,36 @@ const CompletionAnimation = ({
                   ? 'bg-purple-600 hover:bg-purple-700 text-white'
                   : 'bg-purple-500 hover:bg-purple-600 text-white'
               }`}
+              style={{ minHeight: '60px' }}
             >
               <Calendar className="w-5 h-5" />
               Voir l'historique
             </button>
 
             <button
-              onClick={onValidateAndClear}
+              onClick={onValidateAndKeep}
               className={`flex items-center justify-center gap-2 p-4 rounded-xl font-semibold transition-all hover:scale-105 active:scale-95 ${
                 theme === 'dark'
                   ? 'bg-green-600 hover:bg-green-700 text-white'
                   : 'bg-green-500 hover:bg-green-600 text-white'
               }`}
+              style={{ minHeight: '60px' }}
             >
               <Check className="w-5 h-5" />
-              Valider et effacer
+              Valider et conserver
             </button>
-            
+
             <button
-              onClick={handleClose}
+              onClick={onValidateAndClear}
               className={`flex items-center justify-center gap-2 p-4 rounded-xl font-semibold transition-all hover:scale-105 active:scale-95 ${
                 theme === 'dark'
-                  ? 'bg-gray-600 hover:bg-gray-700 text-white'
-                  : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                  ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                  : 'bg-orange-500 hover:bg-orange-600 text-white'
               }`}
+              style={{ minHeight: '60px' }}
             >
-              <X className="w-5 h-5" />
-              Continuer
+              <Trash2 className="w-5 h-5" />
+              Valider et effacer
             </button>
           </div>
         </div>
@@ -780,6 +893,7 @@ const Header = ({ totalItems, checkedItems, onResetTrends, onResetStats, onReset
                     : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}
                 title="Mode clair"
+                style={{ minWidth: '40px', minHeight: '40px' }}
               >
                 <Sun className="w-4 h-4" />
               </button>
@@ -791,6 +905,7 @@ const Header = ({ totalItems, checkedItems, onResetTrends, onResetStats, onReset
                     : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}
                 title="Mode sombre"
+                style={{ minWidth: '40px', minHeight: '40px' }}
               >
                 <Moon className="w-4 h-4" />
               </button>
@@ -815,6 +930,7 @@ const Header = ({ totalItems, checkedItems, onResetTrends, onResetStats, onReset
                     ? 'bg-gray-700 hover:bg-gray-600 text-white' 
                     : 'bg-white/20 backdrop-blur-sm hover:bg-white/30 text-white'
                 }`}
+                style={{ minWidth: '44px', minHeight: '44px' }}
               >
                 <Settings className="w-5 h-5 sm:w-6 sm:h-6" />
               </button>
@@ -848,6 +964,7 @@ const SearchAndSort = ({ searchTerm, setSearchTerm, sortBy, setSortBy, sortOrder
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl focus:border-orange-400 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+          style={{ minHeight: '48px' }}
         />
       </div>
       
@@ -856,6 +973,7 @@ const SearchAndSort = ({ searchTerm, setSearchTerm, sortBy, setSortBy, sortOrder
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
           className="px-3 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl focus:border-orange-400 focus:outline-none text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          style={{ minHeight: '48px' }}
         >
           <option value="name">Nom</option>
           <option value="category">Catégorie</option>
@@ -866,6 +984,7 @@ const SearchAndSort = ({ searchTerm, setSearchTerm, sortBy, setSortBy, sortOrder
         <button
           onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
           className="px-4 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl transition-all font-medium"
+          style={{ minWidth: '60px', minHeight: '48px' }}
         >
           {sortOrder === 'asc' ? '↑' : '↓'}
         </button>
@@ -947,6 +1066,7 @@ const AddItemForm = ({ onAdd, theme }) => {
             onBlur={() => setIsFocused(false)}
             placeholder="Que voulez-vous acheter ?"
             className="w-full px-4 sm:px-5 py-3 sm:py-4 text-base sm:text-lg border-2 border-gray-200 dark:border-gray-600 rounded-xl sm:rounded-2xl focus:border-orange-400 focus:outline-none transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            style={{ minHeight: '52px' }}
           />
         </div>
         
@@ -962,6 +1082,7 @@ const AddItemForm = ({ onAdd, theme }) => {
                   ? 'bg-gray-700 text-gray-300 hover:bg-gray-600 active:scale-95'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95'
               }`}
+              style={{ minHeight: '44px' }}
             >
               <span className="text-base sm:text-xl">{cat.emoji}</span>
               <span className="truncate">{cat.name.split(' ')[0]}</span>
@@ -986,6 +1107,7 @@ const AddItemForm = ({ onAdd, theme }) => {
                   ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 cursor-not-allowed'
                   : 'bg-orange-500 hover:bg-orange-600 text-white active:scale-95'
               }`}
+              style={{ minWidth: '40px', minHeight: '40px' }}
             >
               <Minus className="w-4 h-4" />
             </button>
@@ -999,6 +1121,7 @@ const AddItemForm = ({ onAdd, theme }) => {
             <button
               onClick={increaseQuantity}
               className="p-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-all active:scale-95"
+              style={{ minWidth: '40px', minHeight: '40px' }}
             >
               <Plus className="w-4 h-4" />
             </button>
@@ -1009,6 +1132,7 @@ const AddItemForm = ({ onAdd, theme }) => {
           onClick={handleSubmit}
           disabled={!name.trim()}
           className="w-full bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-600 hover:to-rose-600 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white font-bold py-3 sm:py-4 rounded-xl sm:rounded-2xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-[1.02] active:scale-95 text-sm sm:text-base"
+          style={{ minHeight: '52px' }}
         >
           Ajouter à ma liste
         </button>
@@ -1017,8 +1141,8 @@ const AddItemForm = ({ onAdd, theme }) => {
   );
 };
 
-// Liste avec gestion des quantités
-const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, onClearChecked, onDuplicateList, onResetChecked, theme }) => {
+// Liste avec gestion des quantités - BOUTON DUPLIQUER SUPPRIMÉ
+const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, onClearChecked, onResetChecked, theme, showCompletion }) => {
   const categoryInfo = {
     'Fruits & Légumes': { emoji: '🥬', bg: 'bg-green-50 dark:bg-green-900/20', border: 'border-green-300 dark:border-green-700', text: 'text-green-700 dark:text-green-400', check: 'bg-green-500' },
     'Viandes & Poissons': { emoji: '🥩', bg: 'bg-red-50 dark:bg-red-900/20', border: 'border-red-300 dark:border-red-700', text: 'text-red-700 dark:text-red-400', check: 'bg-red-500' },
@@ -1060,22 +1184,13 @@ const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, 
           </p>
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          {items.length > 0 && (
-            <button
-              onClick={onDuplicateList}
-              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold rounded-lg sm:rounded-xl transition-all text-xs sm:text-sm active:scale-95"
-              title="Dupliquer la liste (les articles cochés seront décochés)"
-            >
-              <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span>Dupliquer</span>
-            </button>
-          )}
-          
-          {hasCheckedItems && (
+          {/* BOUTON DÉCOCHER - SEULEMENT VISIBLE APRÈS L'ANIMATION */}
+          {!showCompletion && hasCheckedItems && (
             <button
               onClick={onResetChecked}
               className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 text-amber-600 dark:text-amber-400 font-semibold rounded-lg sm:rounded-xl transition-all text-xs sm:text-sm active:scale-95"
               title="Décocher tous les articles"
+              style={{ minHeight: '40px' }}
             >
               <X className="w-3 h-3 sm:w-4 sm:h-4" />
               <span className="hidden sm:inline">Décocher tout</span>
@@ -1088,6 +1203,7 @@ const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, 
               onClick={onClearChecked}
               className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400 font-semibold rounded-lg sm:rounded-xl transition-all text-xs sm:text-sm active:scale-95"
               title="Supprimer les articles cochés et les ajouter à l'historique"
+              style={{ minHeight: '40px' }}
             >
               <Check className="w-3 h-3 sm:w-4 sm:h-4" />
               <span className="hidden sm:inline">Valider achetés</span>
@@ -1099,6 +1215,7 @@ const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, 
             <button
               onClick={onClearAll}
               className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 font-semibold rounded-lg sm:rounded-xl transition-all text-xs sm:text-sm active:scale-95"
+              style={{ minHeight: '40px' }}
             >
               <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
               <span className="hidden sm:inline">Tout effacer</span>
@@ -1165,6 +1282,7 @@ const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, 
                             ? 'border-gray-600 bg-gray-700 hover:border-gray-500 active:scale-90'
                             : 'border-gray-300 bg-white hover:border-gray-400 active:scale-90'
                         }`}
+                        style={{ minWidth: '28px', minHeight: '28px' }}
                       >
                         {item.checked && <Check className="w-4 h-4 sm:w-5 sm:h-5 text-white" strokeWidth={3} />}
                       </button>
@@ -1184,6 +1302,7 @@ const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, 
                               ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 cursor-not-allowed'
                               : 'bg-orange-500 hover:bg-orange-600 text-white active:scale-95'
                           }`}
+                          style={{ minWidth: '28px', minHeight: '28px' }}
                         >
                           <Minus className="w-3 h-3" />
                         </button>
@@ -1197,6 +1316,7 @@ const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, 
                         <button
                           onClick={() => onUpdateQuantity(item.id, (item.quantity || 1) + 1)}
                           className="p-1 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-all active:scale-95"
+                          style={{ minWidth: '28px', minHeight: '28px' }}
                         >
                           <Plus className="w-3 h-3" />
                         </button>
@@ -1206,6 +1326,7 @@ const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, 
                         onClick={() => onDelete(item.id)}
                         className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 bg-white dark:bg-gray-700 p-1.5 sm:p-2 rounded-lg shadow-sm hover:shadow-md transition-all hover:scale-110 active:scale-95"
                         aria-label="Supprimer"
+                        style={{ minWidth: '32px', minHeight: '32px' }}
                       >
                         <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-500" />
                       </button>
@@ -1221,16 +1342,24 @@ const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, 
   );
 };
 
-// Tendances - CORRIGÉ pour fonctionner avec l'incrémentation
-const TrendList = ({ trends, onResetTrends, theme, onViewDetails }) => {
-  const MIN_COUNT = 1; // Réduit à 1 pour montrer plus d'articles
+// Tendances - CORRIGÉ pour ne prendre en compte que les achats validés
+const TrendList = ({ trends, purchaseHistory, onResetTrends, theme, onViewDetails }) => {
+  // Calculer les tendances basées uniquement sur l'historique d'achats
+  const validatedTrends = useMemo(() => {
+    const historyTrends = {};
+    purchaseHistory.forEach(item => {
+      historyTrends[item.name] = (historyTrends[item.name] || 0) + (item.quantity || 1);
+    });
+    return historyTrends;
+  }, [purchaseHistory]);
+
+  const hasValidatedTrends = Object.keys(validatedTrends).length > 0;
   
-  const topTrends = Object.entries(trends)
-    .filter(([_, count]) => count >= MIN_COUNT)
+  const topTrends = Object.entries(validatedTrends)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
   
-  if (topTrends.length === 0) {
+  if (!hasValidatedTrends) {
     return (
       <div className={`rounded-2xl sm:rounded-3xl shadow-xl p-4 sm:p-6 ${
         theme === 'dark' 
@@ -1246,10 +1375,10 @@ const TrendList = ({ trends, onResetTrends, theme, onViewDetails }) => {
             </div>
             <div>
               <h2 className="text-lg sm:text-xl font-bold">
-                Top Ajouts
+                Tendances d'achat
               </h2>
               <p className="text-white/80 text-xs sm:text-sm">
-                Articles les plus ajoutés
+                Articles les plus achetés
               </p>
             </div>
           </div>
@@ -1259,10 +1388,10 @@ const TrendList = ({ trends, onResetTrends, theme, onViewDetails }) => {
         }`}>
           <div className="text-4xl sm:text-5xl mb-2 sm:mb-3">📊</div>
           <p className="text-xs sm:text-sm text-white/90 font-medium">
-            Pas assez de données
+            Pas encore de tendances
           </p>
           <p className="text-xs text-white/70 mt-2">
-            Ajoutez des articles pour voir vos tendances
+            Validez vos premiers achats pour voir vos tendances
           </p>
         </div>
       </div>
@@ -1286,10 +1415,10 @@ const TrendList = ({ trends, onResetTrends, theme, onViewDetails }) => {
           </div>
           <div className="min-w-0">
             <h2 className="text-lg sm:text-xl font-bold">
-              Top Ajouts
+              Tendances d'achat
             </h2>
             <p className="text-white/80 text-xs sm:text-sm">
-              Articles les plus fréquents
+              Basé sur vos achats validés
             </p>
           </div>
         </div>
@@ -1300,6 +1429,7 @@ const TrendList = ({ trends, onResetTrends, theme, onViewDetails }) => {
               theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-white/20 hover:bg-white/30 backdrop-blur-sm'
             }`}
             title="Voir le détail"
+            style={{ minWidth: '40px', minHeight: '40px' }}
           >
             <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
@@ -1309,6 +1439,7 @@ const TrendList = ({ trends, onResetTrends, theme, onViewDetails }) => {
               theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-white/20 hover:bg-white/30 backdrop-blur-sm'
             }`}
             title="Réinitialiser les tendances"
+            style={{ minWidth: '40px', minHeight: '40px' }}
           >
             <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
@@ -1340,7 +1471,7 @@ const TrendList = ({ trends, onResetTrends, theme, onViewDetails }) => {
       
       <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-white/20">
         <p className="text-xs text-white/70 text-center">
-          Total: {Object.keys(trends).length} articles différents suivis
+          Basé sur {purchaseHistory.length} achat(s) validé(s)
         </p>
       </div>
     </div>
@@ -1434,6 +1565,7 @@ const DayHistory = ({ purchaseHistory, items, onResetStats, theme, onViewDetails
                 theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-white/20 hover:bg-white/30 backdrop-blur-sm'
               }`}
               title="Voir l'historique complet"
+              style={{ minWidth: '40px', minHeight: '40px' }}
             >
               <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
@@ -1445,6 +1577,7 @@ const DayHistory = ({ purchaseHistory, items, onResetStats, theme, onViewDetails
                 theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-white/20 hover:bg-white/30 backdrop-blur-sm'
               }`}
               title="Réinitialiser l'historique"
+              style={{ minWidth: '40px', minHeight: '40px' }}
             >
               <X className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
@@ -1491,6 +1624,7 @@ const DayHistory = ({ purchaseHistory, items, onResetStats, theme, onViewDetails
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
               className="w-full bg-white/20 border border-white/30 rounded-lg px-3 sm:px-4 py-2 sm:py-3 text-white text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-white/50"
+              style={{ minHeight: '44px' }}
             >
               {sortedDates.map(date => (
                 <option key={date} value={date} className="text-gray-800">
@@ -1711,6 +1845,7 @@ const PurchaseStats = ({ purchaseHistory, items, theme, onViewDetails }) => {
               theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-white/20 hover:bg-white/30 backdrop-blur-sm'
             }`}
             title="Voir les statistiques détaillées"
+            style={{ minWidth: '40px', minHeight: '40px' }}
           >
             <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
@@ -1879,11 +2014,13 @@ export default function App() {
     });
   }, [items, searchTerm, sortBy, sortOrder]);
   
-  // CORRECTION : Fonction pour mettre à jour les tendances
-  const updateTrends = (itemName, quantityChange = 1) => {
+  // CORRECTION : Fonction pour mettre à jour les tendances UNIQUEMENT lors de la validation
+  const updateTrendsFromValidation = (validatedItems) => {
     setTrends(prevTrends => {
       const newTrends = { ...prevTrends };
-      newTrends[itemName] = (newTrends[itemName] || 0) + quantityChange;
+      validatedItems.forEach(item => {
+        newTrends[item.name] = (newTrends[item.name] || 0) + (item.quantity || 1);
+      });
       storage.setTrends(newTrends);
       return newTrends;
     });
@@ -1894,8 +2031,7 @@ export default function App() {
     setItems(newItems);
     storage.setItems(newItems);
     
-    // CORRECTION : Utiliser la fonction updateTrends
-    updateTrends(item.name, item.quantity || 1);
+    // NE PAS mettre à jour les tendances lors de l'ajout
   };
   
   const toggleItem = (id) => {
@@ -1913,22 +2049,13 @@ export default function App() {
   };
   
   const updateQuantity = (id, newQuantity) => {
-    const itemToUpdate = items.find(item => item.id === id);
-    if (itemToUpdate) {
-      const oldQuantity = itemToUpdate.quantity || 1;
-      
-      // CORRECTION : Mettre à jour les tendances seulement si la quantité augmente
-      if (newQuantity > oldQuantity) {
-        const diff = newQuantity - oldQuantity;
-        updateTrends(itemToUpdate.name, diff);
-      }
-    }
-    
     const newItems = items.map(item => 
       item.id === id ? { ...item, quantity: newQuantity } : item
     );
     setItems(newItems);
     storage.setItems(newItems);
+    
+    // NE PAS mettre à jour les tendances lors de la modification de quantité
   };
   
   const clearAll = () => {
@@ -1948,6 +2075,10 @@ export default function App() {
     
     if (window.confirm(`Supprimer ${checkedItems.length} article(s) coché(s) et les ajouter à l'historique ?`)) {
       storage.addToPurchaseHistory(items);
+      
+      // Mettre à jour les tendances UNIQUEMENT après validation
+      updateTrendsFromValidation(checkedItems);
+      
       const newItems = items.filter(item => !item.checked);
       setItems(newItems);
       storage.setItems(newItems);
@@ -1976,37 +2107,55 @@ export default function App() {
     }
   };
   
-  const duplicateList = () => {
-    if (items.length === 0) {
-      alert('La liste est vide !');
+  // NOUVELLE FONCTION : Valider et conserver (décocher sans supprimer)
+  const validateAndKeep = () => {
+    const checkedItems = items.filter(item => item.checked);
+    
+    if (checkedItems.length === 0) {
+      alert('Aucun article coché à valider !');
       return;
     }
     
-    if (!window.confirm('Voulez-vous dupliquer la liste actuelle ? Les articles cochés seront décochés dans la nouvelle liste.')) {
-      return;
-    }
+    storage.addToPurchaseHistory(items);
     
+    // Mettre à jour les tendances UNIQUEMENT après validation
+    updateTrendsFromValidation(checkedItems);
+    
+    // Décocher tous les articles sans les supprimer
     const newItems = items.map(item => ({
       ...item,
-      id: Date.now() + Math.random(),
-      checked: false,
-      addedAt: Date.now()
+      checked: false
     }));
     
     setItems(newItems);
     storage.setItems(newItems);
-    alert(`Liste dupliquée avec succès ! ${newItems.length} article(s) copié(s).`);
+    const updatedHistory = storage.getPurchaseHistory();
+    setPurchaseHistory(updatedHistory);
+    setShowCompletion(false);
+    alert(`${checkedItems.length} article(s) validé(s) et conservés dans la liste (décochés) !`);
   };
   
+  // FONCTION MODIFIÉE : Valider et effacer (supprimer les articles cochés)
   const validateAndClear = () => {
+    const checkedItems = items.filter(item => item.checked);
+    
+    if (checkedItems.length === 0) {
+      alert('Aucun article coché à valider !');
+      return;
+    }
+    
     storage.addToPurchaseHistory(items);
+    
+    // Mettre à jour les tendances UNIQUEMENT après validation
+    updateTrendsFromValidation(checkedItems);
+    
     const newItems = items.filter(item => !item.checked);
     setItems(newItems);
     storage.setItems(newItems);
     const updatedHistory = storage.getPurchaseHistory();
     setPurchaseHistory(updatedHistory);
     setShowCompletion(false);
-    alert(`${items.filter(item => item.checked).length} article(s) validé(s) et supprimé(s) de la liste !`);
+    alert(`${checkedItems.length} article(s) validé(s) et supprimé(s) de la liste !`);
   };
   
   const resetTrends = () => {
@@ -2026,12 +2175,35 @@ export default function App() {
     setPurchaseHistory([]);
   };
   
-  const handleExport = () => {
+  const handleExportCurrentList = () => {
     if (items.length === 0) {
       alert('Votre liste est vide !');
       return;
     }
-    exportToCSV(items);
+    exportToCSV(items, `liste_courses_${new Date().toISOString().split('T')[0]}.csv`);
+  };
+  
+  const handleExportTrends = () => {
+    if (Object.keys(trends).length === 0) {
+      alert('Aucune donnée de tendance à exporter !');
+      return;
+    }
+    
+    const headers = ['Article', 'Nombre d\'achats'];
+    const rows = Object.entries(trends)
+      .sort((a, b) => b[1] - a[1])
+      .map(([item, count]) => [item, count]);
+    
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `tendances_achats_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
   };
   
   const checkedCount = items.reduce((sum, item) => sum + (item.checked ? (item.quantity || 1) : 0), 0);
@@ -2081,9 +2253,9 @@ export default function App() {
               onUpdateQuantity={updateQuantity}
               onClearAll={clearAll}
               onClearChecked={clearChecked}
-              onDuplicateList={duplicateList}
               onResetChecked={resetCheckedItems}
               theme={theme}
+              showCompletion={showCompletion}
             />
           </div>
           
@@ -2093,16 +2265,18 @@ export default function App() {
             
             {items.length > 0 && (
               <button
-                onClick={handleExport}
+                onClick={handleExportCurrentList}
                 className="w-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white font-bold py-3 sm:py-4 rounded-xl sm:rounded-2xl shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-2 transform hover:scale-[1.02] active:scale-95 text-sm sm:text-base"
+                style={{ minHeight: '52px' }}
               >
                 <Download className="w-4 h-4 sm:w-5 sm:h-5" />
-                Exporter CSV
+                Exporter liste actuelle
               </button>
             )}
             
             <TrendList 
               trends={trends} 
+              purchaseHistory={purchaseHistory}
               onResetTrends={resetTrends} 
               theme={theme}
               onViewDetails={() => setShowTrendsModal(true)}
@@ -2132,7 +2306,7 @@ export default function App() {
               theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
             }`}>
               ✓ Gestion des quantités • ✓ Recherche instantanée • ✓ Tri (catégorie/nom/date/quantité)<br />
-              ✓ Dupliquer la liste • ✓ Animation "Liste terminée" • ✓ Stats en temps réel<br />
+              ✓ Animation "Liste terminée" • ✓ Stats en temps réel<br />
               ✓ Sauvegarde auto silencieuse • 100% local • Zéro permission 
             </span>
           </div>
@@ -2144,6 +2318,7 @@ export default function App() {
         onClose={() => setShowCompletion(false)}
         onViewStats={() => setShowStatsModal(true)}
         onViewHistory={() => setShowHistoryModal(true)}
+        onValidateAndKeep={validateAndKeep}
         onValidateAndClear={validateAndClear}
         theme={theme}
       />
@@ -2151,12 +2326,16 @@ export default function App() {
       <Modal 
         isOpen={showTrendsModal} 
         onClose={() => setShowTrendsModal(false)}
-        title="Top Ajouts - Détail Complet"
+        title="Tendances d'Achat - Détail Complet"
         theme={theme}
         size="lg"
       >
-        <div className="p-6">
-          <TrendsModalContent trends={trends} theme={theme} />
+        <div className="p-4 sm:p-6">
+          <TrendsModalContent 
+            trends={trends} 
+            theme={theme} 
+            onExport={handleExportTrends}
+          />
         </div>
       </Modal>
 
@@ -2167,11 +2346,13 @@ export default function App() {
         theme={theme}
         size="xl"
       >
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <HistoryModalContent 
             purchaseHistory={purchaseHistory} 
             items={items}
             theme={theme} 
+            onExportFull={() => exportFullHistoryCSV(purchaseHistory)}
+            onExportDay={(date) => exportDayHistoryCSV(purchaseHistory, date)}
           />
         </div>
       </Modal>
@@ -2183,7 +2364,7 @@ export default function App() {
         theme={theme}
         size="lg"
       >
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <StatsModalContent purchaseHistory={purchaseHistory} items={items} theme={theme} />
         </div>
       </Modal>
