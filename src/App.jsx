@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Download, TrendingUp, Sparkles, ShoppingBasket, X, Check, BarChart3, Settings, Calendar, Search, Moon, Sun, Minus, Shield } from 'lucide-react';
+import { Plus, Trash2, Download, TrendingUp, Sparkles, ShoppingBasket, X, Check, BarChart3, Settings, Calendar, Search, Moon, Sun, Minus, Shield, Edit } from 'lucide-react';
 
-// Utilitaires de stockage
+// Utilitaires de stockage - CORRIGÉ avec stockages séparés
 const storage = {
+  // Articles actuels
   getItems: () => {
     try {
       return JSON.parse(localStorage.getItem('groceryItems') || '[]');
@@ -13,16 +14,23 @@ const storage = {
   setItems: (items) => {
     localStorage.setItem('groceryItems', JSON.stringify(items));
   },
-  getTrends: () => {
+
+  // Top achats (stockage indépendant)
+  getTopPurchases: () => {
     try {
-      return JSON.parse(localStorage.getItem('itemTrends') || '{}');
+      return JSON.parse(localStorage.getItem('topPurchases') || '{}');
     } catch {
       return {};
     }
   },
-  setTrends: (trends) => {
-    localStorage.setItem('itemTrends', JSON.stringify(trends));
+  setTopPurchases: (topPurchases) => {
+    localStorage.setItem('topPurchases', JSON.stringify(topPurchases));
   },
+  resetTopPurchases: () => {
+    localStorage.setItem('topPurchases', JSON.stringify({}));
+  },
+
+  // Historique des achats - AVEC PROTECTION CONTRE LE STOCKAGE PLEIN
   getPurchaseHistory: () => {
     try {
       return JSON.parse(localStorage.getItem('purchaseHistory') || '[]');
@@ -30,49 +38,123 @@ const storage = {
       return [];
     }
   },
+  setPurchaseHistory: (history) => {
+    try {
+      const dataSize = calculateDataSize(history);
+      if (dataSize.megabytes > 4.5) {
+        throw new Error('STOCKAGE_PLEIN');
+      }
+      localStorage.setItem('purchaseHistory', JSON.stringify(history));
+      return true;
+    } catch (error) {
+      if (error.message === 'STOCKAGE_PLEIN') {
+        throw error;
+      }
+      console.error('Error saving purchase history:', error);
+      return false;
+    }
+  },
+
+  // NOUVEAU : Fonction pour ajouter à l'historique avec vérification de taille
   addToPurchaseHistory: (items) => {
     try {
       const history = storage.getPurchaseHistory();
       const purchased = items.filter(item => item.checked).map(item => ({
-        name: item.name,
+        name: item.name.substring(0, 60), // Protection contre les noms trop longs
         category: item.category,
-        quantity: item.quantity,
+        quantity: item.quantity > 9999 ? 9999 : item.quantity, // Protection quantité
+        notes: item.notes ? item.notes.substring(0, 200) : '', // Protection notes
         purchasedAt: Date.now(),
         date: new Date().toISOString().split('T')[0]
       }));
+      
       if (purchased.length > 0) {
-        localStorage.setItem('purchaseHistory', JSON.stringify([...history, ...purchased]));
+        const newHistory = [...history, ...purchased];
+        
+        // VÉRIFICATION CRITIQUE : Taille des données
+        const currentSize = calculateDataSize(history);
+        const newSize = calculateDataSize(newHistory);
+        
+        if (newSize.megabytes > 4.5) {
+          throw new Error('STOCKAGE_PLEIN');
+        }
+        
+        localStorage.setItem('purchaseHistory', JSON.stringify(newHistory));
+        
+        const currentTopPurchases = storage.getTopPurchases();
+        purchased.forEach(purchase => {
+          currentTopPurchases[purchase.name] = (currentTopPurchases[purchase.name] || 0) + (purchase.quantity || 1);
+        });
+        storage.setTopPurchases(currentTopPurchases);
       }
+      return true;
     } catch (e) {
+      if (e.message === 'STOCKAGE_PLEIN') {
+        throw e;
+      }
       console.error('Error saving purchase history:', e);
+      return false;
     }
   },
-  resetTrends: () => {
-    localStorage.setItem('itemTrends', JSON.stringify({}));
-  },
-  resetStats: () => {
+
+  resetPurchaseHistory: () => {
     localStorage.setItem('purchaseHistory', JSON.stringify([]));
   },
+
+  // Tout réinitialiser
   resetAll: () => {
     localStorage.removeItem('groceryItems');
-    localStorage.removeItem('itemTrends');
+    localStorage.removeItem('topPurchases');
     localStorage.removeItem('purchaseHistory');
   },
+
+  // Thème
   getTheme: () => {
     return localStorage.getItem('theme') || 'light';
   },
   setTheme: (theme) => {
     localStorage.setItem('theme', theme);
+  },
+
+  // Gestion des alertes de sécurité
+  getSafetyAlertSeen: () => {
+    return localStorage.getItem('safetyAlertSeen') === 'true';
+  },
+  setSafetyAlertSeen: () => {
+    localStorage.setItem('safetyAlertSeen', 'true');
   }
+};
+
+// FONCTION POUR CALCULER LA TAILLE DES DONNÉES
+const calculateDataSize = (data) => {
+  try {
+    const jsonString = JSON.stringify(data);
+    const bytes = new Blob([jsonString]).size;
+    const megabytes = bytes / (1024 * 1024);
+    return {
+      bytes,
+      megabytes: parseFloat(megabytes.toFixed(2))
+    };
+  } catch (error) {
+    return { bytes: 0, megabytes: 0 };
+  }
+};
+
+// FONCTION POUR TRONQUER LE TEXTE (PROTECTION AFFICHAGE)
+const truncateText = (text, maxLength) => {
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + '...';
 };
 
 // Fonctions d'export CSV
 const exportToCSV = (items, filename) => {
-  const headers = ['Article', 'Catégorie', 'Quantité', 'Statut', 'Date'];
+  const headers = ['Article', 'Catégorie', 'Quantité', 'Notes', 'Statut', 'Date'];
   const rows = items.map(item => [
     item.name,
     item.category || 'Autres',
     item.quantity,
+    item.notes || '',
     item.checked ? 'Acheté' : 'À acheter',
     new Date(item.addedAt || item.purchasedAt).toLocaleDateString('fr-FR')
   ]);
@@ -90,11 +172,12 @@ const exportToCSV = (items, filename) => {
 };
 
 const exportFullHistoryCSV = (purchaseHistory) => {
-  const headers = ['Article', 'Catégorie', 'Quantité', 'Date Achat', 'Heure Achat'];
+  const headers = ['Article', 'Catégorie', 'Quantité', 'Notes', 'Date Achat', 'Heure Achat'];
   const rows = purchaseHistory.map(item => [
-    item.name,
+    truncateText(item.name, 60),
     item.category || 'Autres',
     item.quantity,
+    truncateText(item.notes, 200),
     new Date(item.purchasedAt).toLocaleDateString('fr-FR'),
     new Date(item.purchasedAt).toLocaleTimeString('fr-FR')
   ]);
@@ -116,11 +199,12 @@ const exportDayHistoryCSV = (purchaseHistory, date) => {
     item.date === date || new Date(item.purchasedAt).toISOString().split('T')[0] === date
   );
   
-  const headers = ['Article', 'Catégorie', 'Quantité', 'Heure Achat'];
+  const headers = ['Article', 'Catégorie', 'Quantité', 'Notes', 'Heure Achat'];
   const rows = dayPurchases.map(item => [
-    item.name,
+    truncateText(item.name, 60),
     item.category || 'Autres',
     item.quantity,
+    truncateText(item.notes, 200),
     new Date(item.purchasedAt).toLocaleTimeString('fr-FR')
   ]);
   
@@ -136,7 +220,29 @@ const exportDayHistoryCSV = (purchaseHistory, date) => {
   link.click();
 };
 
-// Composant Modal réutilisable - CORRIGÉ POUR RESPONSIVE
+const exportStatsCSV = (statsData) => {
+  const headers = ['Statistique', 'Valeur'];
+  const rows = [
+    ['Total Articles Achetés', statsData.totalPurchases],
+    ['Articles Uniques', statsData.uniqueItems],
+    ['Jours d\'Achat', statsData.purchaseDates.length],
+    ['Moyenne par Jour', statsData.dailyAverage],
+    ['Catégorie Favorite', `${statsData.topCategory?.[0] || 'N/A'} (${statsData.topCategory?.[1] || 0} achats)`]
+  ];
+  
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+  ].join('\n');
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `statistiques_${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+};
+
+// Composant Modal réutilisable
 const Modal = ({ isOpen, onClose, title, children, theme, size = "md" }) => {
   if (!isOpen) return null;
 
@@ -178,45 +284,162 @@ const Modal = ({ isOpen, onClose, title, children, theme, size = "md" }) => {
         <div className="overflow-y-auto max-h-[calc(90vh-120px)]">
           {children}
         </div>
-        
-        <div className={`flex justify-end p-4 sm:p-6 border-t ${
-          theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-        }`}>
-          <button
-            onClick={onClose}
-            className="px-6 py-3 bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-600 hover:to-rose-600 text-white font-semibold rounded-xl transition-all transform hover:scale-105 active:scale-95"
-            style={{ minWidth: '80px', minHeight: '44px' }}
-          >
-            Fermer
-          </button>
-        </div>
       </div>
     </div>
   );
 };
 
-// Modal pour le menu de paramètres - CORRIGÉ POUR RESPONSIVE
-const SettingsModal = ({ isOpen, onClose, theme, onResetTrends, onResetStats, onResetAll }) => {
+// Bannière de sécurité pour la modale Historique
+const SafetyBanner = ({ purchaseHistory, theme, onExport }) => {
+  if (purchaseHistory.length <= 1500) return null;
+
+  const historySize = calculateDataSize(purchaseHistory);
+
+  return (
+    <div className={`sticky top-0 z-10 p-4 mb-4 border-l-4 ${
+      theme === 'dark' 
+        ? 'bg-red-900/30 border-red-500 text-red-200' 
+        : 'bg-red-100 border-red-500 text-red-800'
+    }`}>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <Shield className="w-5 h-5" />
+            <strong className="font-bold">ALERTE SÉCURITÉ</strong>
+          </div>
+          <p className="text-sm">
+            {purchaseHistory.length} achats ({historySize.megabytes} Mo) → Risque de crash ! 
+            <br />
+            <strong>Exportez immédiatement vos données avant de perdre votre historique.</strong>
+          </p>
+        </div>
+        <button
+          onClick={onExport}
+          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-all whitespace-nowrap"
+          style={{ minHeight: '44px' }}
+        >
+          <Download className="w-4 h-4" />
+          Exporter Urgent
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// MODAL POUR L'ÉDITION DES NOTES
+const EditNotesModal = ({ isOpen, onClose, item, onSave, theme }) => {
+  const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    if (isOpen && item) {
+      setNotes(item.notes || '');
+    }
+  }, [isOpen, item]);
+
+  const handleSave = () => {
+    onSave(notes);
+    onClose();
+  };
+
   if (!isOpen) return null;
 
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="📝 Modifier les notes" theme={theme} size="md">
+      <div className="p-6">
+        <div className="mb-4">
+          <label className={`block text-sm font-medium mb-2 ${
+            theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+          }`}>
+            Notes pour {item?.name}
+          </label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Ajoutez des notes optionnelles (marque, spécificités, rappels...)"
+            className="w-full h-32 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg focus:border-orange-400 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 resize-none"
+            maxLength={200} // PROTECTION : Limite de caractères
+          />
+          <div className={`flex justify-between text-xs mt-1 ${
+            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+          }`}>
+            <span>Ces notes seront sauvegardées avec l'article et incluses dans les exports.</span>
+            <span>{notes.length}/200</span>
+          </div>
+        </div>
+        
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white font-semibold rounded-xl transition-all"
+            style={{ minWidth: '80px', minHeight: '44px' }}
+          >
+            Annuler
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl transition-all"
+            style={{ minWidth: '80px', minHeight: '44px' }}
+          >
+            Sauvegarder
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+// Modal pour le menu de paramètres
+const SettingsModal = ({ isOpen, onClose, theme, onResetTopPurchases, onResetHistory, onResetAll }) => {
+  const [confirmAction, setConfirmAction] = useState(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setConfirmAction(null);
+    }
+  }, [isOpen]);
+
   const handleResetAll = () => {
-    if (window.confirm('Êtes-vous sûr de vouloir tout réinitialiser ? Cette action supprimera définitivement votre liste, vos tendances et vos statistiques.')) {
-      onResetAll();
-      onClose();
-    }
+    setConfirmAction('all');
   };
   
-  const handleResetTrends = () => {
-    if (window.confirm('Réinitialiser les tendances ? Les données de vos articles les plus ajoutés seront perdues.')) {
-      onResetTrends();
-      onClose();
-    }
+  const handleResetTopPurchases = () => {
+    setConfirmAction('topPurchases');
   };
   
-  const handleResetStats = () => {
-    if (window.confirm('Réinitialiser les statistiques ? Votre historique d\'achats sera effacé.')) {
-      onResetStats();
-      onClose();
+  const handleResetHistory = () => {
+    setConfirmAction('history');
+  };
+
+  const executeAction = () => {
+    switch (confirmAction) {
+      case 'all':
+        onResetAll();
+        break;
+      case 'topPurchases':
+        onResetTopPurchases();
+        break;
+      case 'history':
+        onResetHistory();
+        break;
+    }
+    setConfirmAction(null);
+    onClose();
+  };
+
+  const cancelAction = () => {
+    setConfirmAction(null);
+  };
+
+  const getConfirmMessage = () => {
+    switch (confirmAction) {
+      case 'all':
+        return 'Êtes-vous sûr de vouloir tout réinitialiser ? Cette action supprimera définitivement votre liste, vos top achats, votre historique et vos statistiques.';
+      case 'topPurchases':
+        return 'Réinitialiser les top achats ? Les données de vos articles les plus achetés seront perdues.';
+      case 'history':
+        return 'Réinitialiser l\'historique ? Votre historique d\'achats et toutes vos statistiques seront effacés.';
+      default:
+        return '';
     }
   };
 
@@ -224,6 +447,8 @@ const SettingsModal = ({ isOpen, onClose, theme, onResetTrends, onResetStats, on
     window.open('./privacy.html', '_blank');
     onClose();
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -238,10 +463,10 @@ const SettingsModal = ({ isOpen, onClose, theme, onResetTrends, onResetStats, on
           <h2 className={`text-lg sm:text-xl font-bold ${
             theme === 'dark' ? 'text-white' : 'text-gray-800'
           }`}>
-            Paramètres
+            {confirmAction ? 'Confirmation' : 'Paramètres'}
           </h2>
           <button
-            onClick={onClose}
+            onClick={confirmAction ? cancelAction : onClose}
             className={`p-2 sm:p-3 rounded-lg transition-all hover:scale-110 active:scale-95 ${
               theme === 'dark' 
                 ? 'hover:bg-gray-700 text-gray-400 hover:text-white' 
@@ -254,80 +479,105 @@ const SettingsModal = ({ isOpen, onClose, theme, onResetTrends, onResetStats, on
         </div>
         
         <div className="overflow-y-auto max-h-[calc(90vh-140px)] p-4 sm:p-6">
-          <div className="space-y-4">
-            {/* Reset tendances */}
-            <button
-              onClick={handleResetTrends}
-              className="w-full text-left px-4 py-4 hover:bg-orange-50 dark:hover:bg-orange-900/20 text-gray-700 dark:text-gray-300 font-medium transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-orange-200 dark:border-orange-800"
-              style={{ minHeight: '60px' }}
-            >
-              <TrendingUp className="w-5 h-5 text-orange-500" />
-              <div className="flex-1">
-                <div className="font-semibold">Reset tendances</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Effacer les données des articles les plus ajoutés
-                </div>
+          {confirmAction ? (
+            <div className="text-center py-4">
+              <div className="text-4xl mb-4">⚠️</div>
+              <p className={`text-sm ${
+                theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+              } mb-6`}>
+                {getConfirmMessage()}
+              </p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={cancelAction}
+                  className="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white font-semibold rounded-xl transition-all"
+                  style={{ minWidth: '100px', minHeight: '44px' }}
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={executeAction}
+                  className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-xl transition-all"
+                  style={{ minWidth: '100px', minHeight: '44px' }}
+                >
+                  Confirmer
+                </button>
               </div>
-            </button>
-            
-            {/* Reset statistiques */}
-            <button
-              onClick={handleResetStats}
-              className="w-full text-left px-4 py-4 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-300 font-medium transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-blue-200 dark:border-blue-800"
-              style={{ minHeight: '60px' }}
-            >
-              <BarChart3 className="w-5 h-5 text-blue-500" />
-              <div className="flex-1">
-                <div className="font-semibold">Reset statistiques</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Effacer l'historique des achats
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <button
+                onClick={handleResetTopPurchases}
+                className="w-full text-left px-4 py-4 hover:bg-orange-50 dark:hover:bg-orange-900/20 text-gray-700 dark:text-gray-300 font-medium transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-orange-200 dark:border-orange-800"
+                style={{ minHeight: '60px' }}
+              >
+                <TrendingUp className="w-5 h-5 text-orange-500" />
+                <div className="flex-1">
+                  <div className="font-semibold">Reset top achats</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Effacer les données des articles les plus achetés
+                  </div>
                 </div>
-              </div>
-            </button>
-            
-            {/* POLITIQUE DE CONFIDENTIALITÉ */}
-            <button
-              onClick={openPrivacyPolicy}
-              className="w-full text-left px-4 py-4 hover:bg-green-50 dark:hover:bg-green-900/20 text-gray-700 dark:text-gray-300 font-medium transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-green-200 dark:border-green-800"
-              style={{ minHeight: '60px' }}
-            >
-              <Shield className="w-5 h-5 text-green-500" />
-              <div className="flex-1">
-                <div className="font-semibold">Politique de confidentialité</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Comment nous protégeons vos données
+              </button>
+              
+              <button
+                onClick={handleResetHistory}
+                className="w-full text-left px-4 py-4 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-300 font-medium transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-blue-200 dark:border-blue-800"
+                style={{ minHeight: '60px' }}
+              >
+                <Calendar className="w-5 h-5 text-blue-500" />
+                <div className="flex-1">
+                  <div className="font-semibold">Reset historique</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Effacer l'historique des achats et les statistiques
+                  </div>
                 </div>
-              </div>
-            </button>
-            
-            {/* Tout réinitialiser */}
-            <button
-              onClick={handleResetAll}
-              className="w-full text-left px-4 py-4 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 font-semibold transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-red-200 dark:border-red-800"
-              style={{ minHeight: '60px' }}
-            >
-              <Trash2 className="w-5 h-5" />
-              <div className="flex-1">
-                <div className="font-semibold">Tout réinitialiser</div>
-                <div className="text-xs text-red-500 dark:text-red-400 mt-1">
-                  Supprimer toutes les données de l'application
+              </button>
+              
+              <button
+                onClick={openPrivacyPolicy}
+                className="w-full text-left px-4 py-4 hover:bg-green-50 dark:hover:bg-green-900/20 text-gray-700 dark:text-gray-300 font-medium transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-green-200 dark:border-green-800"
+                style={{ minHeight: '60px' }}
+              >
+                <Shield className="w-5 h-5 text-green-500" />
+                <div className="flex-1">
+                  <div className="font-semibold">Politique de confidentialité</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Comment nous protégeons vos données
+                  </div>
                 </div>
-              </div>
-            </button>
-          </div>
+              </button>
+              
+              <button
+                onClick={handleResetAll}
+                className="w-full text-left px-4 py-4 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 font-semibold transition-all flex items-center gap-3 text-sm rounded-xl border-2 border-red-200 dark:border-red-800"
+                style={{ minHeight: '60px' }}
+              >
+                <Trash2 className="w-5 h-5" />
+                <div className="flex-1">
+                  <div className="font-semibold">Tout réinitialiser</div>
+                  <div className="text-xs text-red-500 dark:text-red-400 mt-1">
+                    Supprimer toutes les données de l'application
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
         </div>
         
-        <div className={`flex justify-end p-4 sm:p-6 border-t ${
-          theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-        }`}>
-          <button
-            onClick={onClose}
-            className="px-6 py-3 bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-600 hover:to-rose-600 text-white font-semibold rounded-xl transition-all transform hover:scale-105 active:scale-95"
-            style={{ minWidth: '80px', minHeight: '44px' }}
-          >
-            Fermer
-          </button>
-        </div>
+        {!confirmAction && (
+          <div className={`flex justify-end p-4 sm:p-6 border-t ${
+            theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+          }`}>
+            <button
+              onClick={onClose}
+              className="px-6 py-3 bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-600 hover:to-rose-600 text-white font-semibold rounded-xl transition-all transform hover:scale-105 active:scale-95"
+              style={{ minWidth: '80px', minHeight: '44px' }}
+            >
+              Fermer
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -347,21 +597,39 @@ const getCategoryEmoji = (category) => {
   return emojis[category] || '📦';
 };
 
-// Composant pour le contenu de la modal Trends - CORRIGÉ POUR N'AFFICHER QUE LES TENDANCES VALIDÉES
-const TrendsModalContent = ({ trends, theme, onExport }) => {
-  const sortedTrends = Object.entries(trends)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 20);
+// Composant pour le contenu de la modal TopPurchases
+const TopPurchasesModalContent = ({ topPurchases, theme, onExport, onResetTopPurchases }) => {
+  const [confirmReset, setConfirmReset] = useState(false);
 
-  if (sortedTrends.length === 0) {
+  const sortedTopPurchases = useMemo(() => 
+    Object.entries(topPurchases)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20),
+    [topPurchases]
+  );
+
+  const handleReset = () => {
+    if (!confirmReset) {
+      setConfirmReset(true);
+      return;
+    }
+    onResetTopPurchases();
+    setConfirmReset(false);
+  };
+
+  const cancelReset = () => {
+    setConfirmReset(false);
+  };
+
+  if (sortedTopPurchases.length === 0) {
     return (
       <div className="text-center py-8">
         <div className="text-6xl mb-4">📊</div>
         <p className={`text-lg ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
-          Aucune donnée de tendance
+          Aucune donnée de top achats
         </p>
         <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'} mt-2`}>
-          Les tendances apparaîtront après validation de vos achats
+          Les top achats apparaîtront au fur et à mesure que vous validez des achats
         </p>
       </div>
     );
@@ -369,7 +637,38 @@ const TrendsModalContent = ({ trends, theme, onExport }) => {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-between items-center">
+        {confirmReset ? (
+          <div className="flex items-center gap-2">
+            <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+              Confirmer la réinitialisation ?
+            </span>
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-2 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-all text-sm"
+            >
+              <Check className="w-4 h-4" />
+              Oui
+            </button>
+            <button
+              onClick={cancelReset}
+              className="flex items-center gap-2 px-3 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg transition-all text-sm"
+            >
+              <X className="w-4 h-4" />
+              Non
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleReset}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-all"
+            style={{ minWidth: '140px', minHeight: '44px' }}
+          >
+            <Trash2 className="w-4 h-4" />
+            Reset Top Achats
+          </button>
+        )}
+        
         <button
           onClick={onExport}
           className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-all"
@@ -379,8 +678,9 @@ const TrendsModalContent = ({ trends, theme, onExport }) => {
           Exporter CSV
         </button>
       </div>
+      
       <div className={`grid grid-cols-1 md:grid-cols-2 gap-4`}>
-        {sortedTrends.map(([item, count], index) => (
+        {sortedTopPurchases.map(([item, count], index) => (
           <div
             key={item}
             className={`p-4 rounded-xl border-2 ${
@@ -395,7 +695,7 @@ const TrendsModalContent = ({ trends, theme, onExport }) => {
                   {index < 3 ? ['🥇', '🥈', '🥉'][index] : `${index + 1}.`}
                 </span>
                 <span className={`font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
-                  {item}
+                  {truncateText(item, 40)} {/* PROTECTION AFFICHAGE */}
                 </span>
               </div>
               <div className={`px-3 py-1 rounded-full font-bold ${
@@ -411,29 +711,38 @@ const TrendsModalContent = ({ trends, theme, onExport }) => {
   );
 };
 
-// Composant pour le contenu de la modal History - CORRIGÉ POUR EXPORT
-const HistoryModalContent = ({ purchaseHistory, items, theme, onExportFull, onExportDay }) => {
+// Composant pour le contenu de la modal History - AVEC BANNIÈRE DE SÉCURITÉ
+const HistoryModalContent = ({ purchaseHistory, theme, onExportFull, onExportDay, onResetHistory }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [confirmReset, setConfirmReset] = useState(false);
   
-  // Combiner l'historique avec les articles actuellement cochés
-  const currentCheckedItems = items.filter(item => item.checked).map(item => ({
-    name: item.name,
-    category: item.category,
-    quantity: item.quantity || 1,
-    purchasedAt: Date.now(),
-    date: new Date().toISOString().split('T')[0]
-  }));
-  
-  const combinedHistory = [...purchaseHistory, ...currentCheckedItems];
-  
-  const purchasesByDate = combinedHistory.reduce((acc, purchase) => {
-    const date = purchase.date || new Date(purchase.purchasedAt).toISOString().split('T')[0];
-    if (!acc[date]) acc[date] = [];
-    acc[date].push(purchase);
-    return acc;
-  }, {});
+  const purchasesByDate = useMemo(() => 
+    purchaseHistory.reduce((acc, purchase) => {
+      const date = purchase.date || new Date(purchase.purchasedAt).toISOString().split('T')[0];
+      if (!acc[date]) acc[date] = [];
+      acc[date].push(purchase);
+      return acc;
+    }, {}),
+    [purchaseHistory]
+  );
 
-  const sortedDates = Object.keys(purchasesByDate).sort((a, b) => new Date(b) - new Date(a));
+  const sortedDates = useMemo(() => 
+    Object.keys(purchasesByDate).sort((a, b) => new Date(b) - new Date(a)),
+    [purchasesByDate]
+  );
+
+  const handleReset = () => {
+    if (!confirmReset) {
+      setConfirmReset(true);
+      return;
+    }
+    onResetHistory();
+    setConfirmReset(false);
+  };
+
+  const cancelReset = () => {
+    setConfirmReset(false);
+  };
 
   if (sortedDates.length === 0) {
     return (
@@ -443,10 +752,7 @@ const HistoryModalContent = ({ purchaseHistory, items, theme, onExportFull, onEx
           Aucun historique d'achat
         </p>
         <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'} mt-2`}>
-          {items.filter(item => item.checked).length > 0 
-            ? `${items.filter(item => item.checked).length} article(s) coché(s) seront ajoutés après validation`
-            : 'Validez vos premiers achats pour les voir ici'
-          }
+          Validez vos premiers achats pour les voir ici
         </p>
       </div>
     );
@@ -454,8 +760,48 @@ const HistoryModalContent = ({ purchaseHistory, items, theme, onExportFull, onEx
 
   return (
     <div className="space-y-6">
+      {/* BANNIÈRE DE SÉCURITÉ */}
+      <SafetyBanner 
+        purchaseHistory={purchaseHistory} 
+        theme={theme} 
+        onExport={() => onExportFull(purchaseHistory)}
+      />
+
       <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
         <div className="flex flex-col sm:flex-row gap-4 flex-1">
+          {confirmReset ? (
+            <div className="flex items-center gap-2">
+              <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+                Confirmer la réinitialisation ?
+              </span>
+              <button
+                onClick={handleReset}
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-all"
+                style={{ minWidth: '80px', minHeight: '44px' }}
+              >
+                <Check className="w-4 h-4" />
+                Oui
+              </button>
+              <button
+                onClick={cancelReset}
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg transition-all"
+                style={{ minWidth: '80px', minHeight: '44px' }}
+              >
+                <X className="w-4 h-4" />
+                Non
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleReset}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-all"
+              style={{ minWidth: '180px', minHeight: '44px' }}
+            >
+              <Trash2 className="w-4 h-4" />
+              Reset Historique
+            </button>
+          )}
+          
           <button
             onClick={onExportFull}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-all"
@@ -464,49 +810,39 @@ const HistoryModalContent = ({ purchaseHistory, items, theme, onExportFull, onEx
             <Download className="w-4 h-4" />
             Exporter historique complet
           </button>
-          
-          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-            <select
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="px-4 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg focus:border-orange-400 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              style={{ minWidth: '200px', minHeight: '44px' }}
-            >
-              {sortedDates.map(date => (
-                <option key={date} value={date}>
-                  {new Date(date).toLocaleDateString('fr-FR', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  })} ({purchasesByDate[date].length} articles)
-                </option>
-              ))}
-            </select>
-            
-            <button
-              onClick={() => onExportDay(selectedDate)}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-all"
-              style={{ minWidth: '160px', minHeight: '44px' }}
-            >
-              <Download className="w-4 h-4" />
-              Exporter ce jour
-            </button>
-          </div>
         </div>
       </div>
 
-      {currentCheckedItems.length > 0 && (
-        <div className={`p-4 rounded-xl ${
-          theme === 'dark' ? 'bg-blue-900/20 border border-blue-700' : 'bg-blue-50 border border-blue-200'
-        }`}>
-          <p className={`text-sm text-center ${
-            theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
-          }`}>
-            📝 Inclut {currentCheckedItems.length} article(s) actuellement coché(s) (en attente de validation)
-          </p>
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+          <select
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="px-4 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg focus:border-orange-400 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            style={{ minWidth: '200px', minHeight: '44px' }}
+          >
+            {sortedDates.map(date => (
+              <option key={date} value={date}>
+                {new Date(date).toLocaleDateString('fr-FR', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })} ({purchasesByDate[date].length} articles)
+              </option>
+            ))}
+          </select>
+          
+          <button
+            onClick={() => onExportDay(selectedDate)}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-all"
+            style={{ minWidth: '160px', minHeight: '44px' }}
+          >
+            <Download className="w-4 h-4" />
+            Exporter ce jour
+          </button>
         </div>
-      )}
+      </div>
       
       {sortedDates.map(date => (
         <div key={date} className={`rounded-xl p-4 ${
@@ -530,22 +866,17 @@ const HistoryModalContent = ({ purchaseHistory, items, theme, onExportFull, onEx
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {purchasesByDate[date].map((purchase, index) => {
-              // Vérifier si l'article est en attente de validation (acheté aujourd'hui)
-              const isPending = new Date(purchase.purchasedAt).toISOString().split('T')[0] === new Date().toISOString().split('T')[0] &&
-                               purchaseHistory.findIndex(p => p.name === purchase.name && p.purchasedAt === purchase.purchasedAt) === -1;
-              
-              return (
-                <div
-                  key={index}
-                  className={`flex items-center gap-2 p-2 rounded-lg ${
-                    theme === 'dark' ? 'bg-gray-600' : 'bg-white'
-                  } ${isPending ? 'border-2 border-yellow-400' : ''}`}
-                >
+            {purchasesByDate[date].map((purchase, index) => (
+              <div
+                key={index}
+                className={`flex flex-col p-2 rounded-lg ${
+                  theme === 'dark' ? 'bg-gray-600' : 'bg-white'
+                }`}
+              >
+                <div className="flex items-center gap-2">
                   <span className="text-lg">{getCategoryEmoji(purchase.category)}</span>
-                  <span className={`flex-1 ${theme === 'dark' ? 'text-white' : 'text-gray-800'} ${isPending ? 'italic' : ''}`}>
-                    {purchase.name}
-                    {isPending && <span className="text-xs ml-2 text-yellow-600">(en attente)</span>}
+                  <span className={`flex-1 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
+                    {truncateText(purchase.name, 40)} {/* PROTECTION AFFICHAGE */}
                   </span>
                   <span className={`text-xs px-2 py-1 rounded-full ${
                     theme === 'dark' ? 'bg-gray-500 text-white' : 'bg-gray-200 text-gray-700'
@@ -559,8 +890,16 @@ const HistoryModalContent = ({ purchaseHistory, items, theme, onExportFull, onEx
                     })}
                   </span>
                 </div>
-              );
-            })}
+                {purchase.notes && (
+                  <div className="mt-1 flex items-start gap-1">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">📝</span>
+                    <span className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} flex-1`}>
+                      {truncateText(purchase.notes, 100)} {/* PROTECTION AFFICHAGE */}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       ))}
@@ -588,92 +927,158 @@ const StatCard = ({ title, value, icon, theme }) => (
 );
 
 // Composant pour le contenu de la modal Stats
-const StatsModalContent = ({ purchaseHistory, items, theme }) => {
-  // Combiner l'historique avec les articles actuellement cochés
-  const currentCheckedItems = items.filter(item => item.checked);
-  const allPurchases = [
-    ...purchaseHistory,
-    ...currentCheckedItems.map(item => ({
-      name: item.name,
-      category: item.category,
-      quantity: item.quantity || 1,
-      purchasedAt: Date.now(),
-      date: new Date().toISOString().split('T')[0]
-    }))
-  ];
+const StatsModalContent = ({ purchaseHistory, theme, onResetHistory }) => {
+  const [confirmReset, setConfirmReset] = useState(false);
 
-  // Calculs statistiques avancés
-  const totalPurchases = allPurchases.reduce((sum, item) => sum + (item.quantity || 1), 0);
-  const uniqueItems = [...new Set(allPurchases.map(p => p.name))].length;
-  const purchaseDates = [...new Set(allPurchases.map(p => 
-    p.date || new Date(p.purchasedAt).toISOString().split('T')[0]
-  ))];
-  
-  const dailyAverage = totalPurchases > 0 ? (totalPurchases / purchaseDates.length).toFixed(1) : 0;
-  
-  const categoryStats = allPurchases.reduce((acc, item) => {
-    const cat = item.category || 'Autres';
-    acc[cat] = (acc[cat] || 0) + (item.quantity || 1);
-    return acc;
-  }, {});
-  
-  const topCategories = Object.entries(categoryStats)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  
-  const purchaseCounts = allPurchases.reduce((acc, item) => {
-    acc[item.name] = (acc[item.name] || 0) + (item.quantity || 1);
-    return acc;
-  }, {});
-  
-  const topItems = Object.entries(purchaseCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
+  const allPurchases = purchaseHistory;
 
-  const topCategory = Object.entries(categoryStats).sort((a, b) => b[1] - a[1])[0];
+  const stats = useMemo(() => {
+    const totalPurchases = allPurchases.reduce((sum, item) => sum + (item.quantity || 1), 0);
+    const uniqueItems = [...new Set(allPurchases.map(p => p.name))].length;
+    const purchaseDates = [...new Set(allPurchases.map(p => 
+      p.date || new Date(p.purchasedAt).toISOString().split('T')[0]
+    ))];
+    
+    const dailyAverage = totalPurchases > 0 ? (totalPurchases / purchaseDates.length).toFixed(1) : 0;
+    
+    const categoryStats = allPurchases.reduce((acc, item) => {
+      const cat = item.category || 'Autres';
+      acc[cat] = (acc[cat] || 0) + (item.quantity || 1);
+      return acc;
+    }, {});
+    
+    const topCategories = Object.entries(categoryStats)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    
+    const purchaseCounts = allPurchases.reduce((acc, item) => {
+      acc[item.name] = (acc[item.name] || 0) + (item.quantity || 1);
+      return acc;
+    }, {});
+    
+    const topItems = Object.entries(purchaseCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+
+    const topCategory = Object.entries(categoryStats).sort((a, b) => b[1] - a[1])[0];
+
+    return {
+      totalPurchases,
+      uniqueItems,
+      purchaseDates,
+      dailyAverage,
+      categoryStats,
+      topCategories,
+      topItems,
+      topCategory
+    };
+  }, [allPurchases]);
+
+  const handleReset = () => {
+    if (!confirmReset) {
+      setConfirmReset(true);
+      return;
+    }
+    onResetHistory();
+    setConfirmReset(false);
+  };
+
+  const cancelReset = () => {
+    setConfirmReset(false);
+  };
+
+  const handleExportStats = () => {
+    exportStatsCSV(stats);
+  };
+
+  const hasData = stats.totalPurchases > 0;
+
+  if (!hasData) {
+    return (
+      <div className="text-center py-8">
+        <div className="text-6xl mb-4">📈</div>
+        <p className={`text-lg ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+          Aucune donnée statistique
+        </p>
+        <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'} mt-2`}>
+          Validez vos premiers achats pour voir vos statistiques
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {currentCheckedItems.length > 0 && (
-        <div className={`p-4 rounded-xl ${
-          theme === 'dark' ? 'bg-blue-900/20 border border-blue-700' : 'bg-blue-50 border border-blue-200'
-        }`}>
-          <p className={`text-sm text-center ${
-            theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
-          }`}>
-            📊 Inclut {currentCheckedItems.length} article(s) actuellement coché(s) + historique
-          </p>
-        </div>
-      )}
+      <div className="flex justify-between items-center">
+        {confirmReset ? (
+          <div className="flex items-center gap-2">
+            <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+              Réinitialiser l'historique et les stats ?
+            </span>
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-2 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-all text-sm"
+            >
+              <Check className="w-4 h-4" />
+              Oui
+            </button>
+            <button
+              onClick={cancelReset}
+              className="flex items-center gap-2 px-3 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg transition-all text-sm"
+            >
+              <X className="w-4 h-4" />
+              Non
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleReset}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-all"
+            style={{ minWidth: '180px', minHeight: '44px' }}
+          >
+            <Trash2 className="w-4 h-4" />
+            Reset Historique & Stats
+          </button>
+        )}
+        
+        <button
+          onClick={handleExportStats}
+          className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-all"
+          style={{ minWidth: '140px', minHeight: '44px' }}
+        >
+          <Download className="w-4 h-4" />
+          Exporter CSV
+        </button>
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard 
           title="Total Articles" 
-          value={totalPurchases} 
+          value={stats.totalPurchases} 
           icon="🛒"
           theme={theme}
         />
         <StatCard 
           title="Jours d'achat" 
-          value={purchaseDates.length} 
+          value={stats.purchaseDates.length} 
           icon="📅"
           theme={theme}
         />
         <StatCard 
           title="Moyenne/jour" 
-          value={dailyAverage} 
+          value={stats.dailyAverage} 
           icon="📊"
           theme={theme}
         />
         <StatCard 
           title="Articles uniques" 
-          value={uniqueItems} 
+          value={stats.uniqueItems} 
           icon="🎯"
           theme={theme}
         />
       </div>
 
-      {topCategories.length > 0 && (
+      {stats.topCategories.length > 0 && (
         <div className={`rounded-xl p-4 ${
           theme === 'dark' ? 'bg-gray-700' : 'bg-gray-50'
         }`}>
@@ -683,7 +1088,7 @@ const StatsModalContent = ({ purchaseHistory, items, theme }) => {
             Top Catégories
           </h3>
           <div className="space-y-2">
-            {topCategories.map(([category, count], index) => (
+            {stats.topCategories.map(([category, count], index) => (
               <div key={category} className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="text-xl">{getCategoryEmoji(category)}</span>
@@ -702,7 +1107,7 @@ const StatsModalContent = ({ purchaseHistory, items, theme }) => {
         </div>
       )}
 
-      {topItems.length > 0 && (
+      {stats.topItems.length > 0 && (
         <div className={`rounded-xl p-4 ${
           theme === 'dark' ? 'bg-gray-700' : 'bg-gray-50'
         }`}>
@@ -712,12 +1117,12 @@ const StatsModalContent = ({ purchaseHistory, items, theme }) => {
             Top Articles
           </h3>
           <div className="space-y-2">
-            {topItems.map(([item, count], index) => (
+            {stats.topItems.map(([item, count], index) => (
               <div key={item} className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="text-xl">{index + 1}.</span>
                   <span className={theme === 'dark' ? 'text-white' : 'text-gray-800'}>
-                    {item}
+                    {truncateText(item, 40)} {/* PROTECTION AFFICHAGE */}
                   </span>
                 </div>
                 <div className={`px-3 py-1 rounded-full font-bold ${
@@ -734,17 +1139,66 @@ const StatsModalContent = ({ purchaseHistory, items, theme }) => {
   );
 };
 
-// Animation "Liste terminée" MODIFIÉE - BOUTON CONTINUER RETIRÉ
+// Composant de confirmation réutilisable
+const ConfirmationModal = ({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  title, 
+  message, 
+  confirmText = "Confirmer",
+  cancelText = "Annuler",
+  theme 
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className={`max-w-md w-full rounded-3xl ${
+        theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+      } p-6`}>
+        <h3 className={`text-lg font-bold mb-2 ${
+          theme === 'dark' ? 'text-white' : 'text-gray-800'
+        }`}>
+          {title}
+        </h3>
+        <p className={`text-sm ${
+          theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+        } mb-6`}>
+          {message}
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white font-semibold rounded-xl transition-all"
+            style={{ minWidth: '80px', minHeight: '44px' }}
+          >
+            {cancelText}
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-xl transition-all"
+            style={{ minWidth: '80px', minHeight: '44px' }}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Animation "Liste terminée"
 const CompletionAnimation = ({ 
   show, 
   onClose, 
-  onViewStats, 
-  onViewHistory, 
   onValidateAndKeep,
   onValidateAndClear,
   theme 
 }) => {
   const [isVisible, setIsVisible] = useState(false);
+  const [showConfirmKeep, setShowConfirmKeep] = useState(false);
+  const [showConfirmClear, setShowConfirmClear] = useState(false);
 
   useEffect(() => {
     if (show) {
@@ -755,100 +1209,124 @@ const CompletionAnimation = ({
     }
   }, [show]);
 
-  if (!isVisible && !show) return null;
+  const handleValidateAndKeep = () => {
+    setShowConfirmKeep(true);
+  };
+
+  const handleValidateAndClear = () => {
+    setShowConfirmClear(true);
+  };
+
+  const confirmValidateAndKeep = () => {
+    onValidateAndKeep();
+    setShowConfirmKeep(false);
+  };
+
+  const confirmValidateAndClear = () => {
+    onValidateAndClear();
+    setShowConfirmClear(false);
+  };
 
   const handleClose = () => {
     setIsVisible(false);
     setTimeout(onClose, 300);
   };
 
+  if (!isVisible && !show) return null;
+
   return (
-    <div className={`fixed inset-0 flex items-center justify-center z-50 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${
-      isVisible ? 'opacity-100' : 'opacity-0'
-    }`}>
-      <div className={`max-w-md w-full mx-4 rounded-3xl overflow-hidden transform transition-transform duration-300 ${
-        isVisible ? 'scale-100' : 'scale-95'
-      } ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
-        <div className={`p-6 text-center ${
-          theme === 'dark' 
-            ? 'bg-gradient-to-br from-green-600 to-emerald-700' 
-            : 'bg-gradient-to-br from-green-400 to-emerald-600'
-        }`}>
-          <div className="text-6xl mb-4 animate-bounce">🎉</div>
-          <h3 className="text-2xl font-bold text-white mb-2">Liste terminée !</h3>
-          <p className="text-white/90">Tous les articles ont été achetés !</p>
-        </div>
-        
-        <div className={`p-6 space-y-4 ${
-          theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-        }`}>
-          <p className={`text-center text-sm ${
-            theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+    <>
+      <div className={`fixed inset-0 flex items-center justify-center z-50 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${
+        isVisible ? 'opacity-100' : 'opacity-0'
+      }`}>
+        <div className={`max-w-md w-full mx-4 rounded-3xl overflow-hidden transform transition-transform duration-300 ${
+          isVisible ? 'scale-100' : 'scale-95'
+        } ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
+          <div className={`p-6 text-center ${
+            theme === 'dark' 
+              ? 'bg-gradient-to-br from-green-600 to-emerald-700' 
+              : 'bg-gradient-to-br from-green-400 to-emerald-600'
           }`}>
-            Que souhaitez-vous faire maintenant ?
-          </p>
+            <div className="flex justify-between items-center">
+              <div></div>
+              <h3 className="text-2xl font-bold text-white">Liste terminée !</h3>
+              <button
+                onClick={handleClose}
+                className="p-2 rounded-lg transition-all hover:scale-110 active:scale-95 text-white/80 hover:text-white"
+                style={{ minWidth: '44px', minHeight: '44px' }}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="text-6xl mb-4 animate-bounce">🎉</div>
+            <p className="text-white/90">Tous les articles ont été achetés !</p>
+          </div>
           
-          <div className="grid grid-cols-1 gap-3">
-            <button
-              onClick={onViewStats}
-              className={`flex items-center justify-center gap-2 p-4 rounded-xl font-semibold transition-all hover:scale-105 active:scale-95 ${
-                theme === 'dark'
-                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                  : 'bg-blue-500 hover:bg-blue-600 text-white'
-              }`}
-              style={{ minHeight: '60px' }}
-            >
-              <BarChart3 className="w-5 h-5" />
-              Voir les statistiques
-            </button>
+          <div className={`p-6 space-y-4 ${
+            theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+          }`}>
+            <p className={`text-center text-sm ${
+              theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+            }`}>
+              Que souhaitez-vous faire maintenant ?
+            </p>
             
-            <button
-              onClick={onViewHistory}
-              className={`flex items-center justify-center gap-2 p-4 rounded-xl font-semibold transition-all hover:scale-105 active:scale-95 ${
-                theme === 'dark'
-                  ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                  : 'bg-purple-500 hover:bg-purple-600 text-white'
-              }`}
-              style={{ minHeight: '60px' }}
-            >
-              <Calendar className="w-5 h-5" />
-              Voir l'historique
-            </button>
+            <div className="grid grid-cols-1 gap-3">
+              <button
+                onClick={handleValidateAndKeep}
+                className={`flex items-center justify-center gap-2 p-4 rounded-xl font-semibold transition-all hover:scale-105 active:scale-95 ${
+                  theme === 'dark'
+                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                    : 'bg-green-500 hover:bg-green-600 text-white'
+                }`}
+                style={{ minHeight: '60px' }}
+              >
+                <Check className="w-5 h-5" />
+                Valider et conserver
+              </button>
 
-            <button
-              onClick={onValidateAndKeep}
-              className={`flex items-center justify-center gap-2 p-4 rounded-xl font-semibold transition-all hover:scale-105 active:scale-95 ${
-                theme === 'dark'
-                  ? 'bg-green-600 hover:bg-green-700 text-white'
-                  : 'bg-green-500 hover:bg-green-600 text-white'
-              }`}
-              style={{ minHeight: '60px' }}
-            >
-              <Check className="w-5 h-5" />
-              Valider et conserver
-            </button>
-
-            <button
-              onClick={onValidateAndClear}
-              className={`flex items-center justify-center gap-2 p-4 rounded-xl font-semibold transition-all hover:scale-105 active:scale-95 ${
-                theme === 'dark'
-                  ? 'bg-orange-600 hover:bg-orange-700 text-white'
-                  : 'bg-orange-500 hover:bg-orange-600 text-white'
-              }`}
-              style={{ minHeight: '60px' }}
-            >
-              <Trash2 className="w-5 h-5" />
-              Valider et effacer
-            </button>
+              <button
+                onClick={handleValidateAndClear}
+                className={`flex items-center justify-center gap-2 p-4 rounded-xl font-semibold transition-all hover:scale-105 active:scale-95 ${
+                  theme === 'dark'
+                    ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                    : 'bg-orange-500 hover:bg-orange-600 text-white'
+                }`}
+                style={{ minHeight: '60px' }}
+              >
+                <Trash2 className="w-5 h-5" />
+                Valider et effacer
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+
+      <ConfirmationModal
+        isOpen={showConfirmKeep}
+        onClose={() => setShowConfirmKeep(false)}
+        onConfirm={confirmValidateAndKeep}
+        title="Valider et conserver"
+        message="Les articles cochés seront validés dans l'historique mais conservés dans votre liste (décochés). Continuer ?"
+        confirmText="Valider"
+        theme={theme}
+      />
+
+      <ConfirmationModal
+        isOpen={showConfirmClear}
+        onClose={() => setShowConfirmClear(false)}
+        onConfirm={confirmValidateAndClear}
+        title="Valider et effacer"
+        message="Les articles cochés seront validés dans l'historique et supprimés de votre liste. Cette action est irréversible. Continuer ?"
+        confirmText="Valider et effacer"
+        theme={theme}
+      />
+    </>
   );
 };
 
-// Header COMPLET avec menu fonctionnel
-const Header = ({ totalItems, checkedItems, onResetTrends, onResetStats, onResetAll, theme, setTheme, onOpenSettings }) => {
+// Header
+const Header = ({ totalItems, checkedItems, theme, setTheme, onOpenSettings }) => {
   const progress = totalItems > 0 ? (checkedItems / totalItems) * 100 : 0;
   
   const handleThemeChange = (newTheme) => {
@@ -960,7 +1438,7 @@ const SearchAndSort = ({ searchTerm, setSearchTerm, sortBy, setSortBy, sortOrder
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
         <input
           type="text"
-          placeholder="🔍 Recherche instantanée..."
+          placeholder="🔍 Recherche instantanée (nom, catégorie, notes...)"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl focus:border-orange-400 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
@@ -977,8 +1455,6 @@ const SearchAndSort = ({ searchTerm, setSearchTerm, sortBy, setSortBy, sortOrder
         >
           <option value="name">Nom</option>
           <option value="category">Catégorie</option>
-          <option value="date">Date</option>
-          <option value="quantity">Quantité</option>
         </select>
         
         <button
@@ -993,11 +1469,12 @@ const SearchAndSort = ({ searchTerm, setSearchTerm, sortBy, setSortBy, sortOrder
   </div>
 );
 
-// Formulaire d'ajout avec quantité
+// Formulaire d'ajout avec quantité - AVEC VALIDATION DES DONNÉES
 const AddItemForm = ({ onAdd, theme }) => {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
   const [quantity, setQuantity] = useState(1);
+  const [notes, setNotes] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   
   const categories = [
@@ -1011,19 +1488,40 @@ const AddItemForm = ({ onAdd, theme }) => {
   ];
   
   const handleSubmit = () => {
-    if (name.trim()) {
-      onAdd({
-        id: Date.now(),
-        name: name.trim(),
-        category: category || 'Autres',
-        quantity: quantity,
-        checked: false,
-        addedAt: Date.now()
-      });
-      setName('');
-      setCategory('');
-      setQuantity(1);
+    // VALIDATION DES DONNÉES - PROTECTION CONTRE LES CRASH
+    if (!name.trim()) {
+      alert("Veuillez saisir un nom d'article");
+      return;
     }
+
+    if (name.trim().length > 60) {
+      alert("Nom trop long (max 60 caractères).");
+      return;
+    }
+
+    if (notes.trim().length > 200) {
+      alert("Note trop longue (max 200 caractères).");
+      return;
+    }
+
+    if (quantity > 9999) {
+      alert("Quantité max : 9999");
+      return;
+    }
+
+    onAdd({
+      id: Date.now(),
+      name: name.trim(),
+      category: category || 'Autres',
+      quantity: quantity,
+      notes: notes.trim(),
+      checked: false,
+      addedAt: Date.now()
+    });
+    setName('');
+    setCategory('');
+    setQuantity(1);
+    setNotes('');
   };
   
   const handleKeyPress = (e) => {
@@ -1033,7 +1531,11 @@ const AddItemForm = ({ onAdd, theme }) => {
   };
   
   const increaseQuantity = () => {
-    setQuantity(prev => prev + 1);
+    if (quantity < 9999) {
+      setQuantity(prev => prev + 1);
+    } else {
+      alert("Quantité max : 9999");
+    }
   };
   
   const decreaseQuantity = () => {
@@ -1067,7 +1569,14 @@ const AddItemForm = ({ onAdd, theme }) => {
             placeholder="Que voulez-vous acheter ?"
             className="w-full px-4 sm:px-5 py-3 sm:py-4 text-base sm:text-lg border-2 border-gray-200 dark:border-gray-600 rounded-xl sm:rounded-2xl focus:border-orange-400 focus:outline-none transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             style={{ minHeight: '52px' }}
+            maxLength={60} // PROTECTION : Limite de caractères
           />
+          <div className={`flex justify-between text-xs mt-1 ${
+            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+          }`}>
+            <span>Nom de l'article</span>
+            <span>{name.length}/60</span>
+          </div>
         </div>
         
         <div className="grid grid-cols-2 sm:grid-cols-2 gap-2">
@@ -1088,6 +1597,24 @@ const AddItemForm = ({ onAdd, theme }) => {
               <span className="truncate">{cat.name.split(' ')[0]}</span>
             </button>
           ))}
+        </div>
+        
+        <div>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="📝 Notes optionnelles (marque, spécificités, rappels...)"
+            className="w-full px-4 sm:px-5 py-3 sm:py-4 text-sm border-2 border-gray-200 dark:border-gray-600 rounded-xl sm:rounded-2xl focus:border-orange-400 focus:outline-none transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
+            rows="2"
+            style={{ minHeight: '80px' }}
+            maxLength={200} // PROTECTION : Limite de caractères
+          />
+          <div className={`flex justify-between text-xs mt-1 ${
+            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+          }`}>
+            <span>Notes optionnelles</span>
+            <span>{notes.length}/200</span>
+          </div>
         </div>
         
         <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl ${
@@ -1120,11 +1647,21 @@ const AddItemForm = ({ onAdd, theme }) => {
             
             <button
               onClick={increaseQuantity}
-              className="p-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-all active:scale-95"
+              disabled={quantity >= 9999}
+              className={`p-2 rounded-lg transition-all ${
+                quantity >= 9999
+                  ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 cursor-not-allowed'
+                  : 'bg-orange-500 hover:bg-orange-600 text-white active:scale-95'
+              }`}
               style={{ minWidth: '40px', minHeight: '40px' }}
             >
               <Plus className="w-4 h-4" />
             </button>
+          </div>
+          <div className={`text-center text-xs mt-2 ${
+            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+          }`}>
+            Maximum : 9999
           </div>
         </div>
         
@@ -1141,8 +1678,25 @@ const AddItemForm = ({ onAdd, theme }) => {
   );
 };
 
-// Liste avec gestion des quantités - BOUTON DUPLIQUER SUPPRIMÉ
-const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, onClearChecked, onResetChecked, theme, showCompletion }) => {
+// Liste avec gestion des quantités - AVEC TRONCATURE D'AFFICHAGE
+const GroceryList = ({ 
+  items, 
+  onToggle, 
+  onDelete, 
+  onUpdateQuantity, 
+  onUpdateItem,
+  onClearAll, 
+  onClearChecked, 
+  onResetChecked, 
+  theme, 
+  showCompletion 
+}) => {
+  const [showClearAllConfirmation, setShowClearAllConfirmation] = useState(false);
+  const [showClearCheckedConfirmation, setShowClearCheckedConfirmation] = useState(false);
+  const [showResetCheckedConfirmation, setShowResetCheckedConfirmation] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [showEditNotesModal, setShowEditNotesModal] = useState(false);
+
   const categoryInfo = {
     'Fruits & Légumes': { emoji: '🥬', bg: 'bg-green-50 dark:bg-green-900/20', border: 'border-green-300 dark:border-green-700', text: 'text-green-700 dark:text-green-400', check: 'bg-green-500' },
     'Viandes & Poissons': { emoji: '🥩', bg: 'bg-red-50 dark:bg-red-900/20', border: 'border-red-300 dark:border-red-700', text: 'text-red-700 dark:text-red-400', check: 'bg-red-500' },
@@ -1153,213 +1707,322 @@ const GroceryList = ({ items, onToggle, onDelete, onUpdateQuantity, onClearAll, 
     'Autres': { emoji: '📦', bg: 'bg-gray-50 dark:bg-gray-800', border: 'border-gray-300 dark:border-gray-600', text: 'text-gray-700 dark:text-gray-300', check: 'bg-gray-500' }
   };
   
-  const groupedItems = items.reduce((acc, item) => {
-    const cat = item.category || 'Autres';
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(item);
-    return acc;
-  }, {});
+  const groupedItems = useMemo(() => 
+    items.reduce((acc, item) => {
+      const cat = item.category || 'Autres';
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push(item);
+      return acc;
+    }, {}),
+    [items]
+  );
   
   const hasCheckedItems = items.some(item => item.checked);
   
-  const totalItemsCount = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
-  const checkedItemsCount = items.reduce((sum, item) => sum + (item.checked ? (item.quantity || 1) : 0), 0);
+  const totalItemsCount = useMemo(() => 
+    items.reduce((sum, item) => sum + (item.quantity || 1), 0),
+    [items]
+  );
+  
+  const checkedItemsCount = useMemo(() => 
+    items.reduce((sum, item) => sum + (item.checked ? (item.quantity || 1) : 0), 0),
+    [items]
+  );
+
+  const handleClearAll = () => {
+    setShowClearAllConfirmation(true);
+  };
+
+  const confirmClearAll = () => {
+    onClearAll();
+    setShowClearAllConfirmation(false);
+  };
+
+  const handleClearChecked = () => {
+    setShowClearCheckedConfirmation(true);
+  };
+
+  const confirmClearChecked = () => {
+    onClearChecked();
+    setShowClearCheckedConfirmation(false);
+  };
+
+  const handleResetChecked = () => {
+    setShowResetCheckedConfirmation(true);
+  };
+
+  const confirmResetChecked = () => {
+    onResetChecked();
+    setShowResetCheckedConfirmation(false);
+  };
+
+  const handleEditNotes = (item) => {
+    setEditingItem(item);
+    setShowEditNotesModal(true);
+  };
+
+  const handleSaveNotes = (newNotes) => {
+    if (editingItem && onUpdateItem) {
+      onUpdateItem(editingItem.id, { notes: newNotes });
+    }
+  };
 
   return (
-    <div className={`rounded-2xl sm:rounded-3xl shadow-xl p-4 sm:p-6 ${
-      theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
-    }`}>
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0 mb-4 sm:mb-6">
-        <div>
-          <h2 className={`text-xl sm:text-2xl font-bold ${
-            theme === 'dark' ? 'text-white' : 'text-gray-800'
-          }`}>
-            Ma liste
-          </h2>
-          <p className={`text-xs sm:text-sm mt-1 ${
-            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-          }`}>
-            {items.length} article{items.length > 1 ? 's' : ''} • {totalItemsCount} unité{totalItemsCount > 1 ? 's' : ''}
-            {hasCheckedItems && ` • ${checkedItemsCount} coché${checkedItemsCount > 1 ? 's' : ''}`}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          {/* BOUTON DÉCOCHER - SEULEMENT VISIBLE APRÈS L'ANIMATION */}
-          {!showCompletion && hasCheckedItems && (
-            <button
-              onClick={onResetChecked}
-              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 text-amber-600 dark:text-amber-400 font-semibold rounded-lg sm:rounded-xl transition-all text-xs sm:text-sm active:scale-95"
-              title="Décocher tous les articles"
-              style={{ minHeight: '40px' }}
-            >
-              <X className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span className="hidden sm:inline">Décocher tout</span>
-              <span className="sm:hidden">Décocher</span>
-            </button>
-          )}
-          
-          {hasCheckedItems && (
-            <button
-              onClick={onClearChecked}
-              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400 font-semibold rounded-lg sm:rounded-xl transition-all text-xs sm:text-sm active:scale-95"
-              title="Supprimer les articles cochés et les ajouter à l'historique"
-              style={{ minHeight: '40px' }}
-            >
-              <Check className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span className="hidden sm:inline">Valider achetés</span>
-              <span className="sm:hidden">Achetés</span>
-            </button>
-          )}
-          
-          {items.length > 0 && (
-            <button
-              onClick={onClearAll}
-              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 font-semibold rounded-lg sm:rounded-xl transition-all text-xs sm:text-sm active:scale-95"
-              style={{ minHeight: '40px' }}
-            >
-              <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span className="hidden sm:inline">Tout effacer</span>
-              <span className="sm:hidden">Effacer</span>
-            </button>
-          )}
-        </div>
-      </div>
-      
-      {items.length === 0 ? (
-        <div className="text-center py-12 sm:py-16">
-          <div className={`w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center mx-auto mb-4 ${
-            theme === 'dark' 
-              ? 'bg-gradient-to-br from-orange-900/20 to-rose-900/20' 
-              : 'bg-gradient-to-br from-orange-100 to-rose-100'
-          }`}>
-            <ShoppingBasket className="w-10 h-10 sm:w-12 sm:h-12 text-orange-500" />
+    <>
+      <div className={`rounded-2xl sm:rounded-3xl shadow-xl p-4 sm:p-6 ${
+        theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+      }`}>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0 mb-4 sm:mb-6">
+          <div>
+            <h2 className={`text-xl sm:text-2xl font-bold ${
+              theme === 'dark' ? 'text-white' : 'text-gray-800'
+            }`}>
+              Ma liste
+            </h2>
+            <p className={`text-xs sm:text-sm mt-1 ${
+              theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+            }`}>
+              {items.length} article{items.length > 1 ? 's' : ''} • {totalItemsCount} unité{totalItemsCount > 1 ? 's' : ''}
+              {hasCheckedItems && ` • ${checkedItemsCount} coché${checkedItemsCount > 1 ? 's' : ''}`}
+            </p>
           </div>
-          <p className={`font-medium text-sm sm:text-base ${
-            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-          }`}>
-            Votre liste est vide
-          </p>
-          <p className={`text-xs sm:text-sm mt-1 ${
-            theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
-          }`}>
-            Commencez par ajouter un article
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-4 sm:space-y-6">
-          {Object.entries(groupedItems).map(([category, categoryItems]) => {
-            const info = categoryInfo[category];
-            const categoryTotal = categoryItems.reduce((sum, item) => sum + (item.quantity || 1), 0);
-            const categoryChecked = categoryItems.reduce((sum, item) => sum + (item.checked ? (item.quantity || 1) : 0), 0);
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+            {!showCompletion && hasCheckedItems && (
+              <button
+                onClick={handleResetChecked}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 text-amber-600 dark:text-amber-400 font-semibold rounded-lg sm:rounded-xl transition-all text-xs sm:text-sm active:scale-95"
+                title="Décocher tous les articles"
+                style={{ minHeight: '40px' }}
+              >
+                <X className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Décocher tout</span>
+                <span className="sm:hidden">Décocher</span>
+              </button>
+            )}
             
-            return (
-              <div key={category}>
-                <div className="flex items-center gap-2 mb-2 sm:mb-3">
-                  <span className="text-xl sm:text-2xl">{info.emoji}</span>
-                  <h3 className={`font-bold text-sm sm:text-base ${info.text}`}>
-                    {category}
-                  </h3>
-                  <span className={`text-xs ml-auto ${
-                    theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
-                  }`}>
-                    {categoryChecked}/{categoryTotal}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {categoryItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className={`${info.bg} border-2 ${info.border} rounded-xl sm:rounded-2xl p-3 sm:p-4 flex items-center gap-3 sm:gap-4 group hover:shadow-md transition-all duration-200 ${
-                        item.checked ? 'opacity-60' : ''
-                      }`}
-                    >
-                      <button
-                        onClick={() => onToggle(item.id)}
-                        className={`flex-shrink-0 w-6 h-6 sm:w-7 sm:h-7 rounded-lg border-2 flex items-center justify-center transition-all ${
-                          item.checked 
-                            ? `${info.check} border-transparent` 
-                            : theme === 'dark'
-                            ? 'border-gray-600 bg-gray-700 hover:border-gray-500 active:scale-90'
-                            : 'border-gray-300 bg-white hover:border-gray-400 active:scale-90'
-                        }`}
-                        style={{ minWidth: '28px', minHeight: '28px' }}
-                      >
-                        {item.checked && <Check className="w-4 h-4 sm:w-5 sm:h-5 text-white" strokeWidth={3} />}
-                      </button>
-                      
-                      <span className={`font-semibold ${info.text} flex-1 text-sm sm:text-base ${
-                        item.checked ? 'line-through' : ''
-                      }`}>
-                        {item.name}
-                      </span>
-                      
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => onUpdateQuantity(item.id, Math.max(1, (item.quantity || 1) - 1))}
-                          disabled={(item.quantity || 1) <= 1}
-                          className={`p-1 rounded-lg transition-all ${
-                            (item.quantity || 1) <= 1
-                              ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 cursor-not-allowed'
-                              : 'bg-orange-500 hover:bg-orange-600 text-white active:scale-95'
-                          }`}
-                          style={{ minWidth: '28px', minHeight: '28px' }}
-                        >
-                          <Minus className="w-3 h-3" />
-                        </button>
-                        
-                        <span className={`px-2 py-1 min-w-8 text-center font-bold rounded-lg ${
-                          theme === 'dark' ? 'bg-gray-600 text-white' : 'bg-orange-100 text-orange-600'
-                        }`}>
-                          {item.quantity || 1}
-                        </span>
-                        
-                        <button
-                          onClick={() => onUpdateQuantity(item.id, (item.quantity || 1) + 1)}
-                          className="p-1 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-all active:scale-95"
-                          style={{ minWidth: '28px', minHeight: '28px' }}
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
-                      </div>
-                      
-                      <button
-                        onClick={() => onDelete(item.id)}
-                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 bg-white dark:bg-gray-700 p-1.5 sm:p-2 rounded-lg shadow-sm hover:shadow-md transition-all hover:scale-110 active:scale-95"
-                        aria-label="Supprimer"
-                        style={{ minWidth: '32px', minHeight: '32px' }}
-                      >
-                        <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-500" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
+            {hasCheckedItems && (
+              <button
+                onClick={handleClearChecked}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400 font-semibold rounded-lg sm:rounded-xl transition-all text-xs sm:text-sm active:scale-95"
+                title="Supprimer les articles cochés et les ajouter à l'historique"
+                style={{ minHeight: '40px' }}
+              >
+                <Check className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Valider achetés</span>
+                <span className="sm:hidden">Achetés</span>
+              </button>
+            )}
+            
+            {items.length > 0 && (
+              <button
+                onClick={handleClearAll}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 font-semibold rounded-lg sm:rounded-xl transition-all text-xs sm:text-sm active:scale-95"
+                style={{ minHeight: '40px' }}
+              >
+                <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Tout effacer</span>
+                <span className="sm:hidden">Effacer</span>
+              </button>
+            )}
+          </div>
         </div>
-      )}
-    </div>
+        
+        {items.length === 0 ? (
+          <div className="text-center py-12 sm:py-16">
+            <div className={`w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center mx-auto mb-4 ${
+              theme === 'dark' 
+                ? 'bg-gradient-to-br from-orange-900/20 to-rose-900/20' 
+                : 'bg-gradient-to-br from-orange-100 to-rose-100'
+            }`}>
+              <ShoppingBasket className="w-10 h-10 sm:w-12 sm:h-12 text-orange-500" />
+            </div>
+            <p className={`font-medium text-sm sm:text-base ${
+              theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+            }`}>
+              Votre liste est vide
+            </p>
+            <p className={`text-xs sm:text-sm mt-1 ${
+              theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+            }`}>
+              Commencez par ajouter un article
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4 sm:space-y-6">
+            {Object.entries(groupedItems).map(([category, categoryItems]) => {
+              const info = categoryInfo[category];
+              const categoryTotal = categoryItems.reduce((sum, item) => sum + (item.quantity || 1), 0);
+              const categoryChecked = categoryItems.reduce((sum, item) => sum + (item.checked ? (item.quantity || 1) : 0), 0);
+              
+              return (
+                <div key={category}>
+                  <div className="flex items-center gap-2 mb-2 sm:mb-3">
+                    <span className="text-xl sm:text-2xl">{info.emoji}</span>
+                    <h3 className={`font-bold text-sm sm:text-base ${info.text}`}>
+                      {category}
+                    </h3>
+                    <span className={`text-xs ml-auto ${
+                      theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+                    }`}>
+                      {categoryChecked}/{categoryTotal}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {categoryItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`${info.bg} border-2 ${info.border} rounded-xl sm:rounded-2xl p-3 sm:p-4 flex flex-col group hover:shadow-md transition-all duration-200 ${
+                          item.checked ? 'opacity-60' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 sm:gap-4">
+                          <button
+                            onClick={() => onToggle(item.id)}
+                            className={`flex-shrink-0 w-6 h-6 sm:w-7 sm:h-7 rounded-lg border-2 flex items-center justify-center transition-all ${
+                              item.checked 
+                                ? `${info.check} border-transparent` 
+                                : theme === 'dark'
+                                ? 'border-gray-600 bg-gray-700 hover:border-gray-500 active:scale-90'
+                                : 'border-gray-300 bg-white hover:border-gray-400 active:scale-90'
+                            }`}
+                            style={{ minWidth: '28px', minHeight: '28px' }}
+                          >
+                            {item.checked && <Check className="w-4 h-4 sm:w-5 sm:h-5 text-white" strokeWidth={3} />}
+                          </button>
+                          
+                          <span className={`font-semibold ${info.text} flex-1 text-sm sm:text-base ${
+                            item.checked ? 'line-through' : ''
+                          }`}>
+                            {truncateText(item.name, 40)} {/* PROTECTION AFFICHAGE */}
+                          </span>
+                          
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => onUpdateQuantity(item.id, Math.max(1, (item.quantity || 1) - 1))}
+                              disabled={(item.quantity || 1) <= 1}
+                              className={`p-1 rounded-lg transition-all ${
+                                (item.quantity || 1) <= 1
+                                  ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 cursor-not-allowed'
+                                  : 'bg-orange-500 hover:bg-orange-600 text-white active:scale-95'
+                              }`}
+                              style={{ minWidth: '28px', minHeight: '28px' }}
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            
+                            <span className={`px-2 py-1 min-w-8 text-center font-bold rounded-lg ${
+                              theme === 'dark' ? 'bg-gray-600 text-white' : 'bg-orange-100 text-orange-600'
+                            }`}>
+                              {item.quantity || 1}
+                            </span>
+                            
+                            <button
+                              onClick={() => {
+                                if ((item.quantity || 1) < 9999) {
+                                  onUpdateQuantity(item.id, (item.quantity || 1) + 1);
+                                } else {
+                                  alert("Quantité max : 9999");
+                                }
+                              }}
+                              className="p-1 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-all active:scale-95"
+                              style={{ minWidth: '28px', minHeight: '28px' }}
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                          
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => handleEditNotes(item)}
+                              className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 bg-white dark:bg-gray-700 p-1.5 sm:p-2 rounded-lg shadow-sm hover:shadow-md transition-all hover:scale-110 active:scale-95"
+                              aria-label="Modifier les notes"
+                              style={{ minWidth: '32px', minHeight: '32px' }}
+                            >
+                              <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-500" />
+                            </button>
+                            
+                            <button
+                              onClick={() => onDelete(item.id)}
+                              className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 bg-white dark:bg-gray-700 p-1.5 sm:p-2 rounded-lg shadow-sm hover:shadow-md transition-all hover:scale-110 active:scale-95"
+                              aria-label="Supprimer"
+                              style={{ minWidth: '32px', minHeight: '32px' }}
+                            >
+                              <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-500" />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {item.notes && (
+                          <div className="mt-2 flex items-start gap-2 pl-10">
+                            <span className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex-shrink-0">📝</span>
+                            <span className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} flex-1`}>
+                              {truncateText(item.notes, 100)} {/* PROTECTION AFFICHAGE */}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <EditNotesModal
+        isOpen={showEditNotesModal}
+        onClose={() => setShowEditNotesModal(false)}
+        item={editingItem}
+        onSave={handleSaveNotes}
+        theme={theme}
+      />
+
+      <ConfirmationModal
+        isOpen={showClearAllConfirmation}
+        onClose={() => setShowClearAllConfirmation(false)}
+        onConfirm={confirmClearAll}
+        title="Tout effacer"
+        message="Êtes-vous sûr de vouloir effacer toute la liste ? Cette action est irréversible."
+        confirmText="Tout effacer"
+        theme={theme}
+      />
+
+      <ConfirmationModal
+        isOpen={showClearCheckedConfirmation}
+        onClose={() => setShowClearCheckedConfirmation(false)}
+        onConfirm={confirmClearChecked}
+        title="Valider les articles achetés"
+        message="Les articles cochés seront ajoutés à l'historique et supprimés de la liste. Continuer ?"
+        confirmText="Valider"
+        theme={theme}
+      />
+
+      <ConfirmationModal
+        isOpen={showResetCheckedConfirmation}
+        onClose={() => setShowResetCheckedConfirmation(false)}
+        onConfirm={confirmResetChecked}
+        title="Décocher tous les articles"
+        message="Êtes-vous sûr de vouloir décocher tous les articles ?"
+        confirmText="Décocher"
+        theme={theme}
+      />
+    </>
   );
 };
 
-// Tendances - CORRIGÉ pour ne prendre en compte que les achats validés
-const TrendList = ({ trends, purchaseHistory, onResetTrends, theme, onViewDetails }) => {
-  // Calculer les tendances basées uniquement sur l'historique d'achats
-  const validatedTrends = useMemo(() => {
-    const historyTrends = {};
-    purchaseHistory.forEach(item => {
-      historyTrends[item.name] = (historyTrends[item.name] || 0) + (item.quantity || 1);
-    });
-    return historyTrends;
-  }, [purchaseHistory]);
-
-  const hasValidatedTrends = Object.keys(validatedTrends).length > 0;
+// Top Achats
+const TopPurchasesList = ({ topPurchases, onResetTopPurchases, theme, onViewDetails }) => {
+  const hasTopPurchases = Object.keys(topPurchases).length > 0;
   
-  const topTrends = Object.entries(validatedTrends)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+  const topItems = useMemo(() => 
+    Object.entries(topPurchases)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5),
+    [topPurchases]
+  );
   
-  if (!hasValidatedTrends) {
+  if (!hasTopPurchases) {
     return (
       <div className={`rounded-2xl sm:rounded-3xl shadow-xl p-4 sm:p-6 ${
         theme === 'dark' 
@@ -1375,7 +2038,7 @@ const TrendList = ({ trends, purchaseHistory, onResetTrends, theme, onViewDetail
             </div>
             <div>
               <h2 className="text-lg sm:text-xl font-bold">
-                Tendances d'achat
+                Top Achats
               </h2>
               <p className="text-white/80 text-xs sm:text-sm">
                 Articles les plus achetés
@@ -1388,10 +2051,10 @@ const TrendList = ({ trends, purchaseHistory, onResetTrends, theme, onViewDetail
         }`}>
           <div className="text-4xl sm:text-5xl mb-2 sm:mb-3">📊</div>
           <p className="text-xs sm:text-sm text-white/90 font-medium">
-            Pas encore de tendances
+            Pas encore de top achats
           </p>
           <p className="text-xs text-white/70 mt-2">
-            Validez vos premiers achats pour voir vos tendances
+            Validez vos premiers achats pour voir vos tops
           </p>
         </div>
       </div>
@@ -1415,10 +2078,10 @@ const TrendList = ({ trends, purchaseHistory, onResetTrends, theme, onViewDetail
           </div>
           <div className="min-w-0">
             <h2 className="text-lg sm:text-xl font-bold">
-              Tendances d'achat
+              Top Achats
             </h2>
             <p className="text-white/80 text-xs sm:text-sm">
-              Basé sur vos achats validés
+              Basé sur vos achats réels
             </p>
           </div>
         </div>
@@ -1433,21 +2096,11 @@ const TrendList = ({ trends, purchaseHistory, onResetTrends, theme, onViewDetail
           >
             <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
-          <button
-            onClick={onResetTrends}
-            className={`p-2 rounded-lg transition-all active:scale-95 flex-shrink-0 ${
-              theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-white/20 hover:bg-white/30 backdrop-blur-sm'
-            }`}
-            title="Réinitialiser les tendances"
-            style={{ minWidth: '40px', minHeight: '40px' }}
-          >
-            <X className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
         </div>
       </div>
       
       <div className="space-y-2">
-        {topTrends.map(([item, count], index) => (
+        {topItems.map(([item, count], index) => (
           <div
             key={item}
             className={`rounded-xl sm:rounded-2xl p-3 sm:p-4 flex items-center justify-between hover:bg-white/10 transition-all ${
@@ -1457,7 +2110,7 @@ const TrendList = ({ trends, purchaseHistory, onResetTrends, theme, onViewDetail
             <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
               <span className="text-2xl sm:text-3xl flex-shrink-0">{medals[index]}</span>
               <span className="font-semibold text-sm sm:text-lg truncate">
-                {item}
+                {truncateText(item, 40)} {/* PROTECTION AFFICHAGE */}
               </span>
             </div>
             <div className={`px-2 sm:px-3 py-1 rounded-full flex-shrink-0 ml-2 ${
@@ -1471,7 +2124,7 @@ const TrendList = ({ trends, purchaseHistory, onResetTrends, theme, onViewDetail
       
       <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-white/20">
         <p className="text-xs text-white/70 text-center">
-          Basé sur {purchaseHistory.length} achat(s) validé(s)
+          Basé sur {Object.keys(topPurchases).length} articles différents achetés
         </p>
       </div>
     </div>
@@ -1479,36 +2132,34 @@ const TrendList = ({ trends, purchaseHistory, onResetTrends, theme, onViewDetail
 };
 
 // Historique par Jour
-const DayHistory = ({ purchaseHistory, items, onResetStats, theme, onViewDetails }) => {
+const DayHistory = ({ purchaseHistory, onResetHistory, theme, onViewDetails }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   
-  // Combiner l'historique avec les articles actuellement cochés
-  const currentCheckedItems = items.filter(item => item.checked).map(item => ({
-    name: item.name,
-    category: item.category,
-    quantity: item.quantity || 1,
-    purchasedAt: Date.now(),
-    date: new Date().toISOString().split('T')[0]
-  }));
+  const purchasesByDate = useMemo(() => 
+    purchaseHistory.reduce((acc, purchase) => {
+      const date = purchase.date || new Date(purchase.purchasedAt).toISOString().split('T')[0];
+      if (!acc[date]) acc[date] = [];
+      acc[date].push(purchase);
+      return acc;
+    }, {}),
+    [purchaseHistory]
+  );
   
-  const combinedHistory = [...purchaseHistory, ...currentCheckedItems];
-  
-  const purchasesByDate = combinedHistory.reduce((acc, purchase) => {
-    const date = purchase.date || new Date(purchase.purchasedAt).toISOString().split('T')[0];
-    if (!acc[date]) acc[date] = [];
-    acc[date].push(purchase);
-    return acc;
-  }, {});
-  
-  const sortedDates = Object.keys(purchasesByDate).sort((a, b) => new Date(b) - new Date(a));
+  const sortedDates = useMemo(() => 
+    Object.keys(purchasesByDate).sort((a, b) => new Date(b) - new Date(a)),
+    [purchasesByDate]
+  );
   
   const selectedPurchases = purchasesByDate[selectedDate] || [];
   
-  const categoryStats = selectedPurchases.reduce((acc, item) => {
-    const cat = item.category || 'Autres';
-    acc[cat] = (acc[cat] || 0) + (item.quantity || 1);
-    return acc;
-  }, {});
+  const categoryStats = useMemo(() => 
+    selectedPurchases.reduce((acc, item) => {
+      const cat = item.category || 'Autres';
+      acc[cat] = (acc[cat] || 0) + (item.quantity || 1);
+      return acc;
+    }, {}),
+    [selectedPurchases]
+  );
   
   const categoryInfo = {
     'Fruits & Légumes': { emoji: '🥬', color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/20' },
@@ -1565,21 +2216,9 @@ const DayHistory = ({ purchaseHistory, items, onResetStats, theme, onViewDetails
                 theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-white/20 hover:bg-white/30 backdrop-blur-sm'
               }`}
               title="Voir l'historique complet"
-              style={{ minWidth: '40px', minHeight: '40px' }}
+              style={{ minWidth: '40px', minHeight: '44px' }}
             >
               <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
-            </button>
-          )}
-          {sortedDates.length > 0 && (
-            <button
-              onClick={onResetStats}
-              className={`p-2 rounded-lg transition-all active:scale-95 ${
-                theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-white/20 hover:bg-white/30 backdrop-blur-sm'
-              }`}
-              title="Réinitialiser l'historique"
-              style={{ minWidth: '40px', minHeight: '40px' }}
-            >
-              <X className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           )}
         </div>
@@ -1594,26 +2233,11 @@ const DayHistory = ({ purchaseHistory, items, onResetStats, theme, onViewDetails
             Aucun historique
           </p>
           <p className="text-xs text-white/70 mt-2">
-            {items.filter(item => item.checked).length > 0 
-              ? `${items.filter(item => item.checked).length} article(s) coché(s) seront ajoutés après validation`
-              : 'Vos achats apparaîtront ici'
-            }
+            Validez vos premiers achats pour les voir ici
           </p>
         </div>
       ) : (
         <div className="space-y-4">
-          {currentCheckedItems.length > 0 && (
-            <div className={`p-3 rounded-xl ${
-              theme === 'dark' ? 'bg-blue-900/20 border border-blue-700' : 'bg-blue-50 border border-blue-200'
-            }`}>
-              <p className={`text-xs text-center ${
-                theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
-              }`}>
-                📝 Inclut {currentCheckedItems.length} article(s) actuellement coché(s) (en attente de validation)
-              </p>
-            </div>
-          )}
-
           <div className={`rounded-xl sm:rounded-2xl p-3 sm:p-4 ${
             theme === 'dark' ? 'bg-gray-700/50' : 'bg-white/10 backdrop-blur-sm'
           }`}>
@@ -1673,36 +2297,40 @@ const DayHistory = ({ purchaseHistory, items, onResetStats, theme, onViewDetails
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {selectedPurchases.map((purchase, index) => {
                 const info = categoryInfo[purchase.category] || categoryInfo['Autres'];
-                const isPending = new Date(purchase.purchasedAt).toISOString().split('T')[0] === new Date().toISOString().split('T')[0] &&
-                                 purchaseHistory.findIndex(p => p.name === purchase.name && p.purchasedAt === purchase.purchasedAt) === -1;
-                
                 return (
                   <div
                     key={index}
-                    className={`flex items-center justify-between py-2 border-b border-white/10 last:border-b-0 ${
-                      isPending ? 'border-2 border-yellow-400 rounded-lg p-2' : ''
-                    }`}
+                    className="flex flex-col py-2 border-b border-white/10 last:border-b-0"
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">{info.emoji}</span>
-                      <span className={`font-medium text-sm sm:text-base ${isPending ? 'italic' : ''}`}>
-                        {purchase.name}
-                        {isPending && <span className="text-xs ml-2 text-yellow-400">(en attente)</span>}
-                      </span>
-                      {purchase.quantity > 1 && (
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          theme === 'dark' ? 'bg-gray-600 text-white' : 'bg-white/20 text-white'
-                        }`}>
-                          {purchase.quantity}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{info.emoji}</span>
+                        <span className="font-medium text-sm sm:text-base">
+                          {truncateText(purchase.name, 40)} {/* PROTECTION AFFICHAGE */}
                         </span>
-                      )}
+                        {purchase.quantity > 1 && (
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            theme === 'dark' ? 'bg-gray-600 text-white' : 'bg-white/20 text-white'
+                          }`}>
+                            {purchase.quantity}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-white/70 text-xs">
+                        {new Date(purchase.purchasedAt).toLocaleTimeString('fr-FR', { 
+                          hour: '2-digit', 
+                          minute: '2-digit' 
+                        })}
+                      </div>
                     </div>
-                    <div className="text-white/70 text-xs">
-                      {new Date(purchase.purchasedAt).toLocaleTimeString('fr-FR', { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      })}
-                    </div>
+                    {purchase.notes && (
+                      <div className="mt-1 flex items-start gap-1 pl-7">
+                        <span className="text-xs text-white/60 mt-0.5">📝</span>
+                        <span className="text-xs text-white/70 flex-1">
+                          {truncateText(purchase.notes, 100)} {/* PROTECTION AFFICHAGE */}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1720,7 +2348,7 @@ const DayHistory = ({ purchaseHistory, items, onResetStats, theme, onViewDetails
               <div>
                 <div className="text-white/80">Total achats</div>
                 <div className="font-bold text-lg sm:text-xl">
-                  {combinedHistory.reduce((sum, item) => sum + (item.quantity || 1), 0)}
+                  {purchaseHistory.reduce((sum, item) => sum + (item.quantity || 1), 0)}
                 </div>
               </div>
             </div>
@@ -1732,51 +2360,52 @@ const DayHistory = ({ purchaseHistory, items, onResetStats, theme, onViewDetails
 };
 
 // Statistiques avec moyenne par jour
-const PurchaseStats = ({ purchaseHistory, items, theme, onViewDetails }) => {
-  // Combiner l'historique avec les articles actuellement cochés
-  const currentCheckedItems = items.filter(item => item.checked);
-  const allPurchases = [
-    ...purchaseHistory,
-    ...currentCheckedItems.map(item => ({
-      name: item.name,
-      category: item.category,
-      quantity: item.quantity || 1,
-      purchasedAt: Date.now(),
-      date: new Date().toISOString().split('T')[0]
-    }))
-  ];
+const PurchaseStats = ({ purchaseHistory, theme, onViewDetails, onResetHistory }) => {
+  const allPurchases = purchaseHistory;
 
-  // Calculs statistiques avancés
-  const totalPurchases = allPurchases.reduce((sum, item) => sum + (item.quantity || 1), 0);
-  const uniqueItems = [...new Set(allPurchases.map(p => p.name))].length;
-  const purchaseDates = [...new Set(allPurchases.map(p => 
-    p.date || new Date(p.purchasedAt).toISOString().split('T')[0]
-  ))];
-  
-  const dailyAverage = totalPurchases > 0 ? (totalPurchases / purchaseDates.length).toFixed(1) : 0;
-  
-  const categoryStats = allPurchases.reduce((acc, item) => {
-    const cat = item.category || 'Autres';
-    acc[cat] = (acc[cat] || 0) + (item.quantity || 1);
-    return acc;
-  }, {});
-  
-  const topCategories = Object.entries(categoryStats)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  
-  const purchaseCounts = allPurchases.reduce((acc, item) => {
-    acc[item.name] = (acc[item.name] || 0) + (item.quantity || 1);
-    return acc;
-  }, {});
-  
-  const topItems = Object.entries(purchaseCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
+  const stats = useMemo(() => {
+    const totalPurchases = allPurchases.reduce((sum, item) => sum + (item.quantity || 1), 0);
+    const uniqueItems = [...new Set(allPurchases.map(p => p.name))].length;
+    const purchaseDates = [...new Set(allPurchases.map(p => 
+      p.date || new Date(p.purchasedAt).toISOString().split('T')[0]
+    ))];
+    
+    const dailyAverage = totalPurchases > 0 ? (totalPurchases / purchaseDates.length).toFixed(1) : 0;
+    
+    const categoryStats = allPurchases.reduce((acc, item) => {
+      const cat = item.category || 'Autres';
+      acc[cat] = (acc[cat] || 0) + (item.quantity || 1);
+      return acc;
+    }, {});
+    
+    const topCategories = Object.entries(categoryStats)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    
+    const purchaseCounts = allPurchases.reduce((acc, item) => {
+      acc[item.name] = (acc[item.name] || 0) + (item.quantity || 1);
+      return acc;
+    }, {});
+    
+    const topItems = Object.entries(purchaseCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
 
-  const topCategory = Object.entries(categoryStats).sort((a, b) => b[1] - a[1])[0];
+    const topCategory = Object.entries(categoryStats).sort((a, b) => b[1] - a[1])[0];
 
-  const hasData = totalPurchases > 0;
+    return {
+      totalPurchases,
+      uniqueItems,
+      purchaseDates,
+      dailyAverage,
+      categoryStats,
+      topCategories,
+      topItems,
+      topCategory
+    };
+  }, [allPurchases]);
+
+  const hasData = stats.totalPurchases > 0;
 
   if (!hasData) {
     return (
@@ -1808,10 +2437,7 @@ const PurchaseStats = ({ purchaseHistory, items, theme, onViewDetails }) => {
             Aucune donnée
           </p>
           <p className="text-xs text-white/70 mt-2">
-            {items.filter(item => item.checked).length > 0 
-              ? `${items.filter(item => item.checked).length} article(s) coché(s) seront inclus après validation`
-              : 'Vos statistiques apparaîtront ici'
-            }
+            Validez vos premiers achats pour voir vos statistiques
           </p>
         </div>
       </div>
@@ -1835,7 +2461,7 @@ const PurchaseStats = ({ purchaseHistory, items, theme, onViewDetails }) => {
             Statistiques
             </h2>
           <p className="text-white/80 text-xs sm:text-sm">
-            {currentCheckedItems.length > 0 ? "Achats actuels + historique" : "Vos habitudes d'achat"}
+            Vos habitudes d'achat
           </p>
         </div>
         {hasData && (
@@ -1845,7 +2471,7 @@ const PurchaseStats = ({ purchaseHistory, items, theme, onViewDetails }) => {
               theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-white/20 hover:bg-white/30 backdrop-blur-sm'
             }`}
             title="Voir les statistiques détaillées"
-            style={{ minWidth: '40px', minHeight: '40px' }}
+            style={{ minWidth: '40px', minHeight: '44px' }}
           >
             <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
@@ -1857,19 +2483,15 @@ const PurchaseStats = ({ purchaseHistory, items, theme, onViewDetails }) => {
           theme === 'dark' ? 'bg-gray-700/50' : 'bg-white/10 backdrop-blur-sm'
         }`}>
           <div className="text-white/80 text-xs sm:text-sm mb-1">Total acheté</div>
-          <div className="text-2xl sm:text-3xl font-black">{totalPurchases}</div>
-          <div className="text-white/70 text-xs mt-1">
-            {currentCheckedItems.length > 0 && (
-              <span>(+{currentCheckedItems.reduce((sum, item) => sum + (item.quantity || 1), 0)} en cours)</span>
-            )}
-          </div>
+          <div className="text-2xl sm:text-3xl font-black">{stats.totalPurchases}</div>
+          <div className="text-white/70 text-xs mt-1">articles validés</div>
         </div>
         
         <div className={`rounded-xl sm:rounded-2xl p-3 sm:p-4 ${
           theme === 'dark' ? 'bg-gray-700/50' : 'bg-white/10 backdrop-blur-sm'
         }`}>
           <div className="text-white/80 text-xs sm:text-sm mb-1">Moyenne par jour</div>
-          <div className="text-2xl sm:text-3xl font-black">{dailyAverage}</div>
+          <div className="text-2xl sm:text-3xl font-black">{stats.dailyAverage}</div>
           <div className="text-white/70 text-xs mt-1">articles/jour</div>
         </div>
         
@@ -1877,29 +2499,29 @@ const PurchaseStats = ({ purchaseHistory, items, theme, onViewDetails }) => {
           theme === 'dark' ? 'bg-gray-700/50' : 'bg-white/10 backdrop-blur-sm'
         }`}>
           <div className="text-white/80 text-xs sm:text-sm mb-1">Jours d'achat</div>
-          <div className="text-2xl sm:text-3xl font-black">{purchaseDates.length}</div>
+          <div className="text-2xl sm:text-3xl font-black">{stats.purchaseDates.length}</div>
           <div className="text-white/70 text-xs mt-1">jours différents</div>
         </div>
         
-        {topCategory && (
+        {stats.topCategory && (
           <div className={`rounded-xl sm:rounded-2xl p-3 sm:p-4 ${
             theme === 'dark' ? 'bg-gray-700/50' : 'bg-white/10 backdrop-blur-sm'
           }`}>
             <div className="text-white/80 text-xs sm:text-sm mb-1">Catégorie favorite</div>
-            <div className="text-lg sm:text-xl font-bold truncate">{topCategory[0]}</div>
-            <div className="text-white/70 text-xs mt-1">{topCategory[1]} achats</div>
+            <div className="text-lg sm:text-xl font-bold truncate">{stats.topCategory[0]}</div>
+            <div className="text-white/70 text-xs mt-1">{stats.topCategory[1]} achats</div>
           </div>
         )}
         
-        {topItems.length > 0 && (
+        {stats.topItems.length > 0 && (
           <div className={`rounded-xl sm:rounded-2xl p-3 sm:p-4 ${
             theme === 'dark' ? 'bg-gray-700/50' : 'bg-white/10 backdrop-blur-sm'
           }`}>
             <div className="text-white/80 text-xs sm:text-sm mb-2 sm:mb-3">Top achats</div>
             <div className="space-y-2">
-              {topItems.slice(0, 3).map(([item, count], idx) => (
+              {stats.topItems.slice(0, 3).map(([item, count], idx) => (
                 <div key={item} className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-xs sm:text-sm truncate">{idx + 1}. {item}</span>
+                  <span className="font-medium text-xs sm:text-sm truncate">{idx + 1}. {truncateText(item, 30)}</span>
                   <span className={`px-2 py-1 rounded-full text-xs font-bold flex-shrink-0 ${
                     theme === 'dark' ? 'bg-gray-600' : 'bg-white/20 backdrop-blur-sm'
                   }`}>{count}×</span>
@@ -1913,10 +2535,10 @@ const PurchaseStats = ({ purchaseHistory, items, theme, onViewDetails }) => {
   );
 };
 
-// Composant principal
+// Composant principal AVEC GESTION DES CRASH
 export default function App() {
   const [items, setItems] = useState([]);
-  const [trends, setTrends] = useState({});
+  const [topPurchases, setTopPurchases] = useState({});
   const [purchaseHistory, setPurchaseHistory] = useState([]);
   const [theme, setTheme] = useState('light');
   const [searchTerm, setSearchTerm] = useState('');
@@ -1924,35 +2546,48 @@ export default function App() {
   const [sortOrder, setSortOrder] = useState('asc');
   const [showCompletion, setShowCompletion] = useState(false);
   
-  // États pour les modales
-  const [showTrendsModal, setShowTrendsModal] = useState(false);
+  const [showTopPurchasesModal, setShowTopPurchasesModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   
-  // État pour le responsive
   const [windowSize, setWindowSize] = useState({
     width: window.innerWidth,
     height: window.innerHeight,
   });
 
-  // Chargement initial
+  // Gestion des alertes de sécurité
   useEffect(() => {
-    setItems(storage.getItems());
-    setTrends(storage.getTrends());
-    setPurchaseHistory(storage.getPurchaseHistory());
+    const loadData = () => {
+      try {
+        setItems(storage.getItems());
+        setTopPurchases(storage.getTopPurchases());
+        const history = storage.getPurchaseHistory();
+        setPurchaseHistory(history);
+        
+        // CAS CRITIQUE 1 : Vérification au lancement
+        if (history.length > 2000 && !storage.getSafetyAlertSeen()) {
+          const historySize = calculateDataSize(history);
+          setTimeout(() => {
+            alert(`ATTENTION : ${history.length} achats (${historySize.megabytes} Mo) → risque de crash.\n\nExportez et effacez vos données via l'onglet Historique pour éviter que l'application ne plante.`);
+            storage.setSafetyAlertSeen();
+          }, 1000);
+        }
+      } catch (error) {
+        console.error('Error loading data:', error);
+      }
+    };
+
+    loadData();
     
-    // Charger le thème sauvegardé
     const savedTheme = storage.getTheme();
     setTheme(savedTheme);
   }, []);
   
-  // Gestion du thème
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
   
-  // Gestion du redimensionnement
   useEffect(() => {
     const handleResize = () => {
       setWindowSize({
@@ -1965,35 +2600,40 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Déterminer le type d'appareil
   const isMobile = windowSize.width < 768;
   const isTablet = windowSize.width >= 768 && windowSize.width < 1024;
   const isDesktop = windowSize.width >= 1024;
   
-  // Animation "Liste terminée"
   useEffect(() => {
     if (items.length > 0 && items.every(item => item.checked)) {
       setShowCompletion(true);
     }
   }, [items]);
   
-  // Sauvegarde auto silencieuse
   useEffect(() => {
     const interval = setInterval(() => {
       if (items.length > 0) {
         storage.setItems(items);
-        storage.setTrends(trends);
+        storage.setTopPurchases(topPurchases);
+        try {
+          storage.setPurchaseHistory(purchaseHistory);
+        } catch (error) {
+          if (error.message === 'STOCKAGE_PLEIN') {
+            alert("Stockage plein ! Exportez et effacez l'historique.");
+          }
+        }
       }
     }, 5000);
     
     return () => clearInterval(interval);
-  }, [items, trends]);
+  }, [items, topPurchases, purchaseHistory]);
   
-  // Fonction de recherche et tri
   const sortedItems = useMemo(() => {
     let filtered = items.filter(item => 
       item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.category.toLowerCase().includes(searchTerm.toLowerCase())
+      item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.notes && item.notes.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (item.quantity && item.quantity.toString().includes(searchTerm))
     );
 
     return filtered.sort((a, b) => {
@@ -2001,8 +2641,6 @@ export default function App() {
       switch (sortBy) {
         case 'name': aVal = a.name; bVal = b.name; break;
         case 'category': aVal = a.category; bVal = b.category; break;
-        case 'date': aVal = a.addedAt; bVal = b.addedAt; break;
-        case 'quantity': aVal = a.quantity || 1; bVal = b.quantity || 1; break;
         default: return 0;
       }
       
@@ -2014,24 +2652,10 @@ export default function App() {
     });
   }, [items, searchTerm, sortBy, sortOrder]);
   
-  // CORRECTION : Fonction pour mettre à jour les tendances UNIQUEMENT lors de la validation
-  const updateTrendsFromValidation = (validatedItems) => {
-    setTrends(prevTrends => {
-      const newTrends = { ...prevTrends };
-      validatedItems.forEach(item => {
-        newTrends[item.name] = (newTrends[item.name] || 0) + (item.quantity || 1);
-      });
-      storage.setTrends(newTrends);
-      return newTrends;
-    });
-  };
-  
   const addItem = (item) => {
     const newItems = [...items, item];
     setItems(newItems);
     storage.setItems(newItems);
-    
-    // NE PAS mettre à jour les tendances lors de l'ajout
   };
   
   const toggleItem = (id) => {
@@ -2054,15 +2678,19 @@ export default function App() {
     );
     setItems(newItems);
     storage.setItems(newItems);
-    
-    // NE PAS mettre à jour les tendances lors de la modification de quantité
+  };
+
+  const updateItem = (id, updatedProperties) => {
+    const newItems = items.map(item => 
+      item.id === id ? { ...item, ...updatedProperties } : item
+    );
+    setItems(newItems);
+    storage.setItems(newItems);
   };
   
   const clearAll = () => {
-    if (window.confirm('Êtes-vous sûr de vouloir tout effacer ?')) {
-      setItems([]);
-      storage.setItems([]);
-    }
+    setItems([]);
+    storage.setItems([]);
   };
   
   const clearChecked = () => {
@@ -2073,19 +2701,27 @@ export default function App() {
       return;
     }
     
-    if (window.confirm(`Supprimer ${checkedItems.length} article(s) coché(s) et les ajouter à l'historique ?`)) {
-      storage.addToPurchaseHistory(items);
-      
-      // Mettre à jour les tendances UNIQUEMENT après validation
-      updateTrendsFromValidation(checkedItems);
-      
-      const newItems = items.filter(item => !item.checked);
-      setItems(newItems);
-      storage.setItems(newItems);
-      const updatedHistory = storage.getPurchaseHistory();
-      setPurchaseHistory(updatedHistory);
-      alert(`${checkedItems.length} article(s) ajouté(s) à l'historique et supprimé(s) de la liste !`);
+    try {
+      const success = storage.addToPurchaseHistory(items);
+      if (!success) {
+        alert("Erreur lors de la sauvegarde de l'historique.");
+        return;
+      }
+    } catch (error) {
+      if (error.message === 'STOCKAGE_PLEIN') {
+        alert("Stockage plein ! Exportez et effacez l'historique avant de continuer.");
+        return;
+      }
     }
+    
+    const newItems = items.filter(item => !item.checked);
+    setItems(newItems);
+    storage.setItems(newItems);
+    const updatedHistory = storage.getPurchaseHistory();
+    setPurchaseHistory(updatedHistory);
+    const updatedTopPurchases = storage.getTopPurchases();
+    setTopPurchases(updatedTopPurchases);
+    alert(`${checkedItems.length} article(s) ajouté(s) à l'historique et supprimé(s) de la liste !`);
   };
   
   const resetCheckedItems = () => {
@@ -2096,18 +2732,15 @@ export default function App() {
       return;
     }
     
-    if (window.confirm(`Décocher ${checkedItems.length} article(s) ?`)) {
-      const newItems = items.map(item => ({
-        ...item,
-        checked: false
-      }));
-      
-      setItems(newItems);
-      storage.setItems(newItems);
-    }
+    const newItems = items.map(item => ({
+      ...item,
+      checked: false
+    }));
+    
+    setItems(newItems);
+    storage.setItems(newItems);
   };
   
-  // NOUVELLE FONCTION : Valider et conserver (décocher sans supprimer)
   const validateAndKeep = () => {
     const checkedItems = items.filter(item => item.checked);
     
@@ -2116,12 +2749,19 @@ export default function App() {
       return;
     }
     
-    storage.addToPurchaseHistory(items);
+    try {
+      const success = storage.addToPurchaseHistory(items);
+      if (!success) {
+        alert("Erreur lors de la sauvegarde de l'historique.");
+        return;
+      }
+    } catch (error) {
+      if (error.message === 'STOCKAGE_PLEIN') {
+        alert("Stockage plein ! Exportez et effacez l'historique avant de continuer.");
+        return;
+      }
+    }
     
-    // Mettre à jour les tendances UNIQUEMENT après validation
-    updateTrendsFromValidation(checkedItems);
-    
-    // Décocher tous les articles sans les supprimer
     const newItems = items.map(item => ({
       ...item,
       checked: false
@@ -2131,11 +2771,12 @@ export default function App() {
     storage.setItems(newItems);
     const updatedHistory = storage.getPurchaseHistory();
     setPurchaseHistory(updatedHistory);
+    const updatedTopPurchases = storage.getTopPurchases();
+    setTopPurchases(updatedTopPurchases);
     setShowCompletion(false);
     alert(`${checkedItems.length} article(s) validé(s) et conservés dans la liste (décochés) !`);
   };
   
-  // FONCTION MODIFIÉE : Valider et effacer (supprimer les articles cochés)
   const validateAndClear = () => {
     const checkedItems = items.filter(item => item.checked);
     
@@ -2144,34 +2785,44 @@ export default function App() {
       return;
     }
     
-    storage.addToPurchaseHistory(items);
-    
-    // Mettre à jour les tendances UNIQUEMENT après validation
-    updateTrendsFromValidation(checkedItems);
+    try {
+      const success = storage.addToPurchaseHistory(items);
+      if (!success) {
+        alert("Erreur lors de la sauvegarde de l'historique.");
+        return;
+      }
+    } catch (error) {
+      if (error.message === 'STOCKAGE_PLEIN') {
+        alert("Stockage plein ! Exportez et effacez l'historique avant de continuer.");
+        return;
+      }
+    }
     
     const newItems = items.filter(item => !item.checked);
     setItems(newItems);
     storage.setItems(newItems);
     const updatedHistory = storage.getPurchaseHistory();
     setPurchaseHistory(updatedHistory);
+    const updatedTopPurchases = storage.getTopPurchases();
+    setTopPurchases(updatedTopPurchases);
     setShowCompletion(false);
     alert(`${checkedItems.length} article(s) validé(s) et supprimé(s) de la liste !`);
   };
   
-  const resetTrends = () => {
-    storage.resetTrends();
-    setTrends({});
+  const resetTopPurchases = () => {
+    storage.resetTopPurchases();
+    setTopPurchases({});
   };
   
-  const resetStats = () => {
-    storage.resetStats();
+  const resetHistory = () => {
+    storage.resetPurchaseHistory();
     setPurchaseHistory([]);
   };
   
   const resetAll = () => {
     storage.resetAll();
     setItems([]);
-    setTrends({});
+    setTopPurchases({});
     setPurchaseHistory([]);
   };
   
@@ -2183,16 +2834,16 @@ export default function App() {
     exportToCSV(items, `liste_courses_${new Date().toISOString().split('T')[0]}.csv`);
   };
   
-  const handleExportTrends = () => {
-    if (Object.keys(trends).length === 0) {
-      alert('Aucune donnée de tendance à exporter !');
+  const handleExportTopPurchases = () => {
+    if (Object.keys(topPurchases).length === 0) {
+      alert('Aucune donnée de top achats à exporter !');
       return;
     }
     
     const headers = ['Article', 'Nombre d\'achats'];
-    const rows = Object.entries(trends)
+    const rows = Object.entries(topPurchases)
       .sort((a, b) => b[1] - a[1])
-      .map(([item, count]) => [item, count]);
+      .map(([item, count]) => [truncateText(item, 60), count]);
     
     const csvContent = [
       headers.join(','),
@@ -2202,12 +2853,19 @@ export default function App() {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `tendances_achats_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `top_achats_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
   };
   
-  const checkedCount = items.reduce((sum, item) => sum + (item.checked ? (item.quantity || 1) : 0), 0);
-  const totalCount = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
+  const checkedCount = useMemo(() => 
+    items.reduce((sum, item) => sum + (item.checked ? (item.quantity || 1) : 0), 0),
+    [items]
+  );
+  
+  const totalCount = useMemo(() => 
+    items.reduce((sum, item) => sum + (item.quantity || 1), 0),
+    [items]
+  );
   
   return (
     <div className={`min-h-screen transition-colors duration-300 ${
@@ -2218,9 +2876,6 @@ export default function App() {
       <Header 
         totalItems={totalCount} 
         checkedItems={checkedCount}
-        onResetTrends={resetTrends}
-        onResetStats={resetStats}
-        onResetAll={resetAll}
         theme={theme}
         setTheme={setTheme}
         onOpenSettings={() => setShowSettingsModal(true)}
@@ -2232,7 +2887,6 @@ export default function App() {
           isTablet ? 'grid-cols-1' : 
           'grid-cols-1 lg:grid-cols-3'
         } gap-4 sm:gap-6`}>
-          {/* Colonne principale avec la liste des courses */}
           <div className="lg:col-span-2">
             {items.length > 0 && (
               <SearchAndSort
@@ -2251,6 +2905,7 @@ export default function App() {
               onToggle={toggleItem}
               onDelete={deleteItem}
               onUpdateQuantity={updateQuantity}
+              onUpdateItem={updateItem}
               onClearAll={clearAll}
               onClearChecked={clearChecked}
               onResetChecked={resetCheckedItems}
@@ -2259,7 +2914,6 @@ export default function App() {
             />
           </div>
           
-          {/* Colonne latérale avec formulaire, stats et historique */}
           <div className="lg:col-span-1 space-y-4 sm:space-y-6">
             <AddItemForm onAdd={addItem} theme={theme} />
             
@@ -2274,25 +2928,23 @@ export default function App() {
               </button>
             )}
             
-            <TrendList 
-              trends={trends} 
-              purchaseHistory={purchaseHistory}
-              onResetTrends={resetTrends} 
+            <TopPurchasesList 
+              topPurchases={topPurchases} 
+              onResetTopPurchases={resetTopPurchases} 
               theme={theme}
-              onViewDetails={() => setShowTrendsModal(true)}
+              onViewDetails={() => setShowTopPurchasesModal(true)}
             />
             <DayHistory 
               purchaseHistory={purchaseHistory} 
-              items={items}
-              onResetStats={resetStats} 
+              onResetHistory={resetHistory} 
               theme={theme}
               onViewDetails={() => setShowHistoryModal(true)}
             />
             <PurchaseStats 
               purchaseHistory={purchaseHistory} 
-              items={items}
               theme={theme}
               onViewDetails={() => setShowStatsModal(true)}
+              onResetHistory={resetHistory}
             />
           </div>
         </div>
@@ -2305,9 +2957,10 @@ export default function App() {
             <span className={`text-xs sm:text-sm font-medium ${
               theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
             }`}>
-              ✓ Gestion des quantités • ✓ Recherche instantanée • ✓ Tri (catégorie/nom/date/quantité)<br />
-              ✓ Animation "Liste terminée" • ✓ Stats en temps réel<br />
-              ✓ Sauvegarde auto silencieuse • 100% local • Zéro permission 
+              ✓ Gestion des quantités • ✓ Recherche instantanée • ✓ Tri (catégorie/nom)<br />
+              ✓ Notes optionnelles • ✓ Animation "Liste terminée" • ✓ Stats en temps réel<br />
+              ✓ Sauvegarde auto silencieuse • 100% local • Zéro permission <br />
+              ✓ Protection anti-crash • Troncature automatique • Limites de sécurité
             </span>
           </div>
         </div>
@@ -2316,25 +2969,24 @@ export default function App() {
       <CompletionAnimation 
         show={showCompletion} 
         onClose={() => setShowCompletion(false)}
-        onViewStats={() => setShowStatsModal(true)}
-        onViewHistory={() => setShowHistoryModal(true)}
         onValidateAndKeep={validateAndKeep}
         onValidateAndClear={validateAndClear}
         theme={theme}
       />
       
       <Modal 
-        isOpen={showTrendsModal} 
-        onClose={() => setShowTrendsModal(false)}
-        title="Tendances d'Achat - Détail Complet"
+        isOpen={showTopPurchasesModal} 
+        onClose={() => setShowTopPurchasesModal(false)}
+        title="Top Achats - Détail Complet"
         theme={theme}
         size="lg"
       >
         <div className="p-4 sm:p-6">
-          <TrendsModalContent 
-            trends={trends} 
+          <TopPurchasesModalContent 
+            topPurchases={topPurchases} 
             theme={theme} 
-            onExport={handleExportTrends}
+            onExport={handleExportTopPurchases}
+            onResetTopPurchases={resetTopPurchases}
           />
         </div>
       </Modal>
@@ -2349,10 +3001,10 @@ export default function App() {
         <div className="p-4 sm:p-6">
           <HistoryModalContent 
             purchaseHistory={purchaseHistory} 
-            items={items}
             theme={theme} 
             onExportFull={() => exportFullHistoryCSV(purchaseHistory)}
             onExportDay={(date) => exportDayHistoryCSV(purchaseHistory, date)}
+            onResetHistory={resetHistory}
           />
         </div>
       </Modal>
@@ -2365,7 +3017,11 @@ export default function App() {
         size="lg"
       >
         <div className="p-4 sm:p-6">
-          <StatsModalContent purchaseHistory={purchaseHistory} items={items} theme={theme} />
+          <StatsModalContent 
+            purchaseHistory={purchaseHistory} 
+            theme={theme} 
+            onResetHistory={resetHistory} 
+          />
         </div>
       </Modal>
 
@@ -2373,8 +3029,8 @@ export default function App() {
         isOpen={showSettingsModal} 
         onClose={() => setShowSettingsModal(false)}
         theme={theme}
-        onResetTrends={resetTrends}
-        onResetStats={resetStats}
+        onResetTopPurchases={resetTopPurchases}
+        onResetHistory={resetHistory}
         onResetAll={resetAll}
       />
     </div>
