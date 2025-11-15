@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.thawankiboxcoquito.app",
+      "sha256_cert_fingerprints": [
+        "29:BC:C2:6F:56:EB:52:A9:A0:AC:CD:8B:5F:08:CF:AA:ED:74:EA:26:77:C4:C1:B2:97:C0:65:C4:15:7C:89:36"
+      ]
+    }
+  }
+]
