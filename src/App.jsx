@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Download, TrendingUp, Sparkles, ShoppingBasket, X, Check, BarChart3, Settings, Calendar, Search, Moon, Sun, Minus, Shield, Edit } from 'lucide-react';
 
-// Utilitaires de stockage - CORRIGÉ avec stockages séparés
+// Utilitaires de stockage - CORRIGÉ avec fuseau horaire local
 const storage = {
   // Articles actuels
   getItems: () => {
@@ -30,7 +30,7 @@ const storage = {
     localStorage.setItem('topPurchases', JSON.stringify({}));
   },
 
-  // Historique des achats - AVEC PROTECTION CONTRE LE STOCKAGE PLEIN
+  // Historique des achats - AVEC FUSEAU HORAIRE CORRIGÉ
   getPurchaseHistory: () => {
     try {
       return JSON.parse(localStorage.getItem('purchaseHistory') || '[]');
@@ -55,17 +55,31 @@ const storage = {
     }
   },
 
-  // NOUVEAU : Fonction pour ajouter à l'historique avec vérification de taille
+  // CORRIGÉ : Utilisation de l'heure locale pour éviter les décalages
   addToPurchaseHistory: (items) => {
     try {
       const history = storage.getPurchaseHistory();
+      
+      // Obtenir la date et heure locales actuelles
+      const now = new Date();
+      const localDateString = now.toLocaleDateString('fr-CA'); // Format YYYY-MM-DD
+      const localTimeString = now.toLocaleTimeString('fr-FR'); // Format HH:MM:SS
+      
+      // Créer un timestamp avec l'heure locale
+      const localTimestamp = now.getTime();
+      // Ajuster pour s'assurer que c'est la date locale
+      const timezoneOffset = now.getTimezoneOffset() * 60000;
+      const localTime = localTimestamp - timezoneOffset;
+      
       const purchased = items.filter(item => item.checked).map(item => ({
-        name: item.name.substring(0, 60), // Protection contre les noms trop longs
+        name: item.name.substring(0, 60),
         category: item.category,
-        quantity: item.quantity > 9999 ? 9999 : item.quantity, // Protection quantité
-        notes: item.notes ? item.notes.substring(0, 200) : '', // Protection notes
-        purchasedAt: Date.now(),
-        date: new Date().toISOString().split('T')[0]
+        quantity: item.quantity > 9999 ? 9999 : item.quantity,
+        notes: item.notes ? item.notes.substring(0, 200) : '',
+        purchasedAt: localTime, // Utiliser le timestamp local
+        date: localDateString, // Utiliser la date locale
+        time: localTimeString, // Sauvegarder aussi l'heure locale
+        timezoneOffset: timezoneOffset // Sauvegarder le décalage pour référence
       }));
       
       if (purchased.length > 0) {
@@ -147,7 +161,22 @@ const truncateText = (text, maxLength) => {
   return text.substring(0, maxLength) + '...';
 };
 
-// Fonctions d'export CSV
+// FONCTION POUR OBTENIR LA DATE LOCALE CORRECTE
+const getLocalDateString = (timestamp = null) => {
+  const date = timestamp ? new Date(timestamp) : new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// FONCTION POUR OBTENIR L'HEURE LOCALE CORRECTE
+const getLocalTimeString = (timestamp = null) => {
+  const date = timestamp ? new Date(timestamp) : new Date();
+  return date.toLocaleTimeString('fr-FR');
+};
+
+// Fonctions d'export CSV - CORRIGÉES avec fuseau horaire local
 const exportToCSV = (items, filename) => {
   const headers = ['Article', 'Catégorie', 'Quantité', 'Notes', 'Statut', 'Date'];
   const rows = items.map(item => [
@@ -178,8 +207,8 @@ const exportFullHistoryCSV = (purchaseHistory) => {
     item.category || 'Autres',
     item.quantity,
     truncateText(item.notes, 200),
-    new Date(item.purchasedAt).toLocaleDateString('fr-FR'),
-    new Date(item.purchasedAt).toLocaleTimeString('fr-FR')
+    getLocalDateString(item.purchasedAt), // Utiliser la fonction corrigée
+    getLocalTimeString(item.purchasedAt)  // Utiliser la fonction corrigée
   ]);
   
   const csvContent = [
@@ -190,13 +219,13 @@ const exportFullHistoryCSV = (purchaseHistory) => {
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = `historique_complet_${new Date().toISOString().split('T')[0]}.csv`;
+  link.download = `historique_complet_${getLocalDateString()}.csv`;
   link.click();
 };
 
 const exportDayHistoryCSV = (purchaseHistory, date) => {
   const dayPurchases = purchaseHistory.filter(item => 
-    item.date === date || new Date(item.purchasedAt).toISOString().split('T')[0] === date
+    item.date === date || getLocalDateString(item.purchasedAt) === date
   );
   
   const headers = ['Article', 'Catégorie', 'Quantité', 'Notes', 'Heure Achat'];
@@ -205,7 +234,7 @@ const exportDayHistoryCSV = (purchaseHistory, date) => {
     item.category || 'Autres',
     item.quantity,
     truncateText(item.notes, 200),
-    new Date(item.purchasedAt).toLocaleTimeString('fr-FR')
+    getLocalTimeString(item.purchasedAt) // Utiliser la fonction corrigée
   ]);
   
   const csvContent = [
@@ -238,7 +267,7 @@ const exportStatsCSV = (statsData) => {
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = `statistiques_${new Date().toISOString().split('T')[0]}.csv`;
+  link.download = `statistiques_${getLocalDateString()}.csv`;
   link.click();
 };
 
@@ -357,7 +386,7 @@ const EditNotesModal = ({ isOpen, onClose, item, onSave, theme }) => {
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Ajoutez des notes optionnelles (marque, spécificités, rappels...)"
             className="w-full h-32 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg focus:border-orange-400 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 resize-none"
-            maxLength={200} // PROTECTION : Limite de caractères
+            maxLength={200}
           />
           <div className={`flex justify-between text-xs mt-1 ${
             theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
@@ -695,7 +724,7 @@ const TopPurchasesModalContent = ({ topPurchases, theme, onExport, onResetTopPur
                   {index < 3 ? ['🥇', '🥈', '🥉'][index] : `${index + 1}.`}
                 </span>
                 <span className={`font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
-                  {truncateText(item, 40)} {/* PROTECTION AFFICHAGE */}
+                  {truncateText(item, 40)}
                 </span>
               </div>
               <div className={`px-3 py-1 rounded-full font-bold ${
@@ -711,14 +740,15 @@ const TopPurchasesModalContent = ({ topPurchases, theme, onExport, onResetTopPur
   );
 };
 
-// Composant pour le contenu de la modal History - AVEC BANNIÈRE DE SÉCURITÉ
+// Composant pour le contenu de la modal History - CORRIGÉ avec fuseau horaire local
 const HistoryModalContent = ({ purchaseHistory, theme, onExportFull, onExportDay, onResetHistory }) => {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
   const [confirmReset, setConfirmReset] = useState(false);
   
+  // CORRIGÉ : Utiliser la fonction getLocalDateString pour le regroupement
   const purchasesByDate = useMemo(() => 
     purchaseHistory.reduce((acc, purchase) => {
-      const date = purchase.date || new Date(purchase.purchasedAt).toISOString().split('T')[0];
+      const date = purchase.date || getLocalDateString(purchase.purchasedAt);
       if (!acc[date]) acc[date] = [];
       acc[date].push(purchase);
       return acc;
@@ -760,7 +790,6 @@ const HistoryModalContent = ({ purchaseHistory, theme, onExportFull, onExportDay
 
   return (
     <div className="space-y-6">
-      {/* BANNIÈRE DE SÉCURITÉ */}
       <SafetyBanner 
         purchaseHistory={purchaseHistory} 
         theme={theme} 
@@ -876,7 +905,7 @@ const HistoryModalContent = ({ purchaseHistory, theme, onExportFull, onExportDay
                 <div className="flex items-center gap-2">
                   <span className="text-lg">{getCategoryEmoji(purchase.category)}</span>
                   <span className={`flex-1 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
-                    {truncateText(purchase.name, 40)} {/* PROTECTION AFFICHAGE */}
+                    {truncateText(purchase.name, 40)}
                   </span>
                   <span className={`text-xs px-2 py-1 rounded-full ${
                     theme === 'dark' ? 'bg-gray-500 text-white' : 'bg-gray-200 text-gray-700'
@@ -884,17 +913,15 @@ const HistoryModalContent = ({ purchaseHistory, theme, onExportFull, onExportDay
                     {purchase.quantity || 1}
                   </span>
                   <span className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                    {new Date(purchase.purchasedAt).toLocaleTimeString('fr-FR', { 
-                      hour: '2-digit', 
-                      minute: '2-digit' 
-                    })}
+                    {/* CORRIGÉ : Utiliser l'heure locale stockée ou la recalculer */}
+                    {purchase.time || getLocalTimeString(purchase.purchasedAt)}
                   </span>
                 </div>
                 {purchase.notes && (
                   <div className="mt-1 flex items-start gap-1">
                     <span className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">📝</span>
                     <span className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} flex-1`}>
-                      {truncateText(purchase.notes, 100)} {/* PROTECTION AFFICHAGE */}
+                      {truncateText(purchase.notes, 100)}
                     </span>
                   </div>
                 )}
@@ -926,7 +953,7 @@ const StatCard = ({ title, value, icon, theme }) => (
   </div>
 );
 
-// Composant pour le contenu de la modal Stats
+// Composant pour le contenu de la modal Stats - CORRIGÉ avec fuseau horaire local
 const StatsModalContent = ({ purchaseHistory, theme, onResetHistory }) => {
   const [confirmReset, setConfirmReset] = useState(false);
 
@@ -935,8 +962,10 @@ const StatsModalContent = ({ purchaseHistory, theme, onResetHistory }) => {
   const stats = useMemo(() => {
     const totalPurchases = allPurchases.reduce((sum, item) => sum + (item.quantity || 1), 0);
     const uniqueItems = [...new Set(allPurchases.map(p => p.name))].length;
+    
+    // CORRIGÉ : Utiliser la date locale pour le calcul des jours d'achat
     const purchaseDates = [...new Set(allPurchases.map(p => 
-      p.date || new Date(p.purchasedAt).toISOString().split('T')[0]
+      p.date || getLocalDateString(p.purchasedAt)
     ))];
     
     const dailyAverage = totalPurchases > 0 ? (totalPurchases / purchaseDates.length).toFixed(1) : 0;
@@ -1122,7 +1151,7 @@ const StatsModalContent = ({ purchaseHistory, theme, onResetHistory }) => {
                 <div className="flex items-center gap-3">
                   <span className="text-xl">{index + 1}.</span>
                   <span className={theme === 'dark' ? 'text-white' : 'text-gray-800'}>
-                    {truncateText(item, 40)} {/* PROTECTION AFFICHAGE */}
+                    {truncateText(item, 40)}
                   </span>
                 </div>
                 <div className={`px-3 py-1 rounded-full font-bold ${
@@ -1469,7 +1498,7 @@ const SearchAndSort = ({ searchTerm, setSearchTerm, sortBy, setSortBy, sortOrder
   </div>
 );
 
-// Formulaire d'ajout avec quantité - AVEC VALIDATION DES DONNÉES
+// Formulaire d'ajout avec quantité
 const AddItemForm = ({ onAdd, theme }) => {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
@@ -1488,7 +1517,6 @@ const AddItemForm = ({ onAdd, theme }) => {
   ];
   
   const handleSubmit = () => {
-    // VALIDATION DES DONNÉES - PROTECTION CONTRE LES CRASH
     if (!name.trim()) {
       alert("Veuillez saisir un nom d'article");
       return;
@@ -1569,7 +1597,7 @@ const AddItemForm = ({ onAdd, theme }) => {
             placeholder="Que voulez-vous acheter ?"
             className="w-full px-4 sm:px-5 py-3 sm:py-4 text-base sm:text-lg border-2 border-gray-200 dark:border-gray-600 rounded-xl sm:rounded-2xl focus:border-orange-400 focus:outline-none transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             style={{ minHeight: '52px' }}
-            maxLength={60} // PROTECTION : Limite de caractères
+            maxLength={60}
           />
           <div className={`flex justify-between text-xs mt-1 ${
             theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
@@ -1607,7 +1635,7 @@ const AddItemForm = ({ onAdd, theme }) => {
             className="w-full px-4 sm:px-5 py-3 sm:py-4 text-sm border-2 border-gray-200 dark:border-gray-600 rounded-xl sm:rounded-2xl focus:border-orange-400 focus:outline-none transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
             rows="2"
             style={{ minHeight: '80px' }}
-            maxLength={200} // PROTECTION : Limite de caractères
+            maxLength={200}
           />
           <div className={`flex justify-between text-xs mt-1 ${
             theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
@@ -1678,7 +1706,7 @@ const AddItemForm = ({ onAdd, theme }) => {
   );
 };
 
-// Liste avec gestion des quantités - AVEC TRONCATURE D'AFFICHAGE
+// Liste avec gestion des quantités
 const GroceryList = ({ 
   items, 
   onToggle, 
@@ -1893,7 +1921,7 @@ const GroceryList = ({
                           <span className={`font-semibold ${info.text} flex-1 text-sm sm:text-base ${
                             item.checked ? 'line-through' : ''
                           }`}>
-                            {truncateText(item.name, 40)} {/* PROTECTION AFFICHAGE */}
+                            {truncateText(item.name, 40)}
                           </span>
                           
                           <div className="flex items-center gap-2">
@@ -1956,7 +1984,7 @@ const GroceryList = ({
                           <div className="mt-2 flex items-start gap-2 pl-10">
                             <span className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex-shrink-0">📝</span>
                             <span className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} flex-1`}>
-                              {truncateText(item.notes, 100)} {/* PROTECTION AFFICHAGE */}
+                              {truncateText(item.notes, 100)}
                             </span>
                           </div>
                         )}
@@ -2110,7 +2138,7 @@ const TopPurchasesList = ({ topPurchases, onResetTopPurchases, theme, onViewDeta
             <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
               <span className="text-2xl sm:text-3xl flex-shrink-0">{medals[index]}</span>
               <span className="font-semibold text-sm sm:text-lg truncate">
-                {truncateText(item, 40)} {/* PROTECTION AFFICHAGE */}
+                {truncateText(item, 40)}
               </span>
             </div>
             <div className={`px-2 sm:px-3 py-1 rounded-full flex-shrink-0 ml-2 ${
@@ -2131,13 +2159,14 @@ const TopPurchasesList = ({ topPurchases, onResetTopPurchases, theme, onViewDeta
   );
 };
 
-// Historique par Jour
+// Historique par Jour - CORRIGÉ avec fuseau horaire local
 const DayHistory = ({ purchaseHistory, onResetHistory, theme, onViewDetails }) => {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
   
+  // CORRIGÉ : Utiliser la fonction getLocalDateString pour le regroupement
   const purchasesByDate = useMemo(() => 
     purchaseHistory.reduce((acc, purchase) => {
-      const date = purchase.date || new Date(purchase.purchasedAt).toISOString().split('T')[0];
+      const date = purchase.date || getLocalDateString(purchase.purchasedAt);
       if (!acc[date]) acc[date] = [];
       acc[date].push(purchase);
       return acc;
@@ -2173,8 +2202,8 @@ const DayHistory = ({ purchaseHistory, onResetHistory, theme, onViewDetails }) =
   
   const formatDate = (dateString) => {
     const date = new Date(dateString);
-    const today = new Date().toISOString().split('T')[0];
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    const today = getLocalDateString();
+    const yesterday = getLocalDateString(Date.now() - 86400000);
     
     if (dateString === today) return 'Aujourd\'hui';
     if (dateString === yesterday) return 'Hier';
@@ -2306,7 +2335,7 @@ const DayHistory = ({ purchaseHistory, onResetHistory, theme, onViewDetails }) =
                       <div className="flex items-center gap-2">
                         <span className="text-lg">{info.emoji}</span>
                         <span className="font-medium text-sm sm:text-base">
-                          {truncateText(purchase.name, 40)} {/* PROTECTION AFFICHAGE */}
+                          {truncateText(purchase.name, 40)}
                         </span>
                         {purchase.quantity > 1 && (
                           <span className={`text-xs px-2 py-1 rounded-full ${
@@ -2317,17 +2346,15 @@ const DayHistory = ({ purchaseHistory, onResetHistory, theme, onViewDetails }) =
                         )}
                       </div>
                       <div className="text-white/70 text-xs">
-                        {new Date(purchase.purchasedAt).toLocaleTimeString('fr-FR', { 
-                          hour: '2-digit', 
-                          minute: '2-digit' 
-                        })}
+                        {/* CORRIGÉ : Utiliser l'heure locale stockée ou la recalculer */}
+                        {purchase.time || getLocalTimeString(purchase.purchasedAt)}
                       </div>
                     </div>
                     {purchase.notes && (
                       <div className="mt-1 flex items-start gap-1 pl-7">
                         <span className="text-xs text-white/60 mt-0.5">📝</span>
                         <span className="text-xs text-white/70 flex-1">
-                          {truncateText(purchase.notes, 100)} {/* PROTECTION AFFICHAGE */}
+                          {truncateText(purchase.notes, 100)}
                         </span>
                       </div>
                     )}
@@ -2359,15 +2386,17 @@ const DayHistory = ({ purchaseHistory, onResetHistory, theme, onViewDetails }) =
   );
 };
 
-// Statistiques avec moyenne par jour
+// Statistiques avec moyenne par jour - CORRIGÉ avec fuseau horaire local
 const PurchaseStats = ({ purchaseHistory, theme, onViewDetails, onResetHistory }) => {
   const allPurchases = purchaseHistory;
 
   const stats = useMemo(() => {
     const totalPurchases = allPurchases.reduce((sum, item) => sum + (item.quantity || 1), 0);
     const uniqueItems = [...new Set(allPurchases.map(p => p.name))].length;
+    
+    // CORRIGÉ : Utiliser la date locale pour le calcul des jours d'achat
     const purchaseDates = [...new Set(allPurchases.map(p => 
-      p.date || new Date(p.purchasedAt).toISOString().split('T')[0]
+      p.date || getLocalDateString(p.purchasedAt)
     ))];
     
     const dailyAverage = totalPurchases > 0 ? (totalPurchases / purchaseDates.length).toFixed(1) : 0;
@@ -2535,7 +2564,7 @@ const PurchaseStats = ({ purchaseHistory, theme, onViewDetails, onResetHistory }
   );
 };
 
-// Composant principal AVEC GESTION DES CRASH
+// Composant principal AVEC FUSEAU HORAIRE CORRIGÉ
 export default function App() {
   const [items, setItems] = useState([]);
   const [topPurchases, setTopPurchases] = useState({});
@@ -2556,7 +2585,6 @@ export default function App() {
     height: window.innerHeight,
   });
 
-  // Gestion des alertes de sécurité
   useEffect(() => {
     const loadData = () => {
       try {
@@ -2565,7 +2593,6 @@ export default function App() {
         const history = storage.getPurchaseHistory();
         setPurchaseHistory(history);
         
-        // CAS CRITIQUE 1 : Vérification au lancement
         if (history.length > 2000 && !storage.getSafetyAlertSeen()) {
           const historySize = calculateDataSize(history);
           setTimeout(() => {
@@ -2831,7 +2858,7 @@ export default function App() {
       alert('Votre liste est vide !');
       return;
     }
-    exportToCSV(items, `liste_courses_${new Date().toISOString().split('T')[0]}.csv`);
+    exportToCSV(items, `liste_courses_${getLocalDateString()}.csv`);
   };
   
   const handleExportTopPurchases = () => {
@@ -2853,7 +2880,7 @@ export default function App() {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `top_achats_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `top_achats_${getLocalDateString()}.csv`;
     link.click();
   };
   
@@ -2960,7 +2987,8 @@ export default function App() {
               ✓ Gestion des quantités • ✓ Recherche instantanée • ✓ Tri (catégorie/nom)<br />
               ✓ Notes optionnelles • ✓ Animation "Liste terminée" • ✓ Stats en temps réel<br />
               ✓ Sauvegarde auto silencieuse • 100% local • Zéro permission <br />
-              ✓ Protection anti-crash • Troncature automatique • Limites de sécurité
+              ✓ Protection anti-crash • Troncature automatique • Limites de sécurité<br />
+              ✓ Fuseau horaire local corrigé • Pas de décalage de date
             </span>
           </div>
         </div>
